@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>🎓 课堂问卷调查 - 学生端</title>
+  <link rel="stylesheet" href="css/style.css?v=20260309">
+</head>
+<body>
+  <div class="container">
+    <h1 id="course-title">🎓 课堂问卷调查</h1>
+    
+    <!-- 登录页面 -->
+    <div id="login-page" class="card">
+      <h2>👋 欢迎你！</h2>
+      <div class="input-group">
+        <label for="class-select">请选择你的班级：</label>
+        <select id="class-select">
+          <option value="">请选择班级</option>
+          <option value="五年级（1）班">五年级（1）班</option>
+          <option value="五年级（2）班">五年级（2）班</option>
+          <option value="五年级（3）班">五年级（3）班</option>
+          <option value="五年级（4）班">五年级（4）班</option>
+          <option value="五年级（5）班">五年级（5）班</option>
+          <option value="五年级（6）班">五年级（6）班</option>
+          <option value="五年级（7）班">五年级（7）班</option>
+        </select>
+      </div>
+      <div class="input-group" style="position: relative;">
+        <label for="student-name">请输入你的姓名：</label>
+        <input type="text" id="student-name" placeholder="请输入你的姓名，输入1个字符即可显示匹配的姓名" autocomplete="off">
+        <!-- 自定义姓名建议下拉框 -->
+        <div id="name-dropdown" style="position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; display: none; margin-top: 4px;">
+        </div>
+      </div>
+      <button class="btn btn-full btn-success" onclick="startSurvey()">开始答题 ✨</button>
+    </div>
+    
+    <!-- 问卷页面 -->
+    <div id="survey-page" class="hidden">
+      <div class="card" style="margin-bottom: 20px; padding: 15px; background: #E8F4FD;">
+        <h3 style="margin: 0; text-align: center;">当前是：<span id="lesson-name">第1节课</span></h3>
+      </div>
+      
+      <!-- 第一部分 -->
+      <div id="part1" class="card">
+        <h2>📝 第一部分：上课前</h2>
+        <div id="part1-content">
+          <!-- 题目会动态加载 -->
+        </div>
+        <div class="btn-group" id="part1-btn">
+          <button class="btn btn-success" onclick="submitPart1()">提交第一部分 ✅</button>
+        </div>
+      </div>
+      
+      <!-- 等待第二部分 -->
+      <div id="waiting-part2" class="card hidden">
+        <div class="waiting-message">
+          <div class="emoji">⏳</div>
+          <p>第一部分提交成功！<br>请等待老师开启第二部分...</p>
+        </div>
+      </div>
+      
+      <!-- 第二部分 -->
+      <div id="part2" class="card hidden">
+        <h2>💬 第二部分：思考与讨论</h2>
+        <!-- 答题指引区域 -->
+        <div id="part2GuideSection" style="margin-bottom: 25px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; display: none;">
+          <h4 style="margin: 0 0 10px 0; color: #856404;">📋 答题指引</h4>
+          <div id="part2GuideContent" style="font-size: 15px; line-height: 1.8; user-select: text; white-space: pre-wrap; word-wrap: break-word;">
+          </div>
+        </div>
+        <div id="part2-content">
+          <!-- 题目会动态加载 -->
+        </div>
+        <div class="btn-group" id="part2-btn">
+          <button class="btn btn-success" onclick="submitPart2()">提交第二部分 ✅</button>
+        </div>
+      </div>
+      
+      <!-- 等待第三部分 -->
+      <div id="waiting-part3" class="card hidden">
+        <div class="waiting-message">
+          <div class="emoji">⏳</div>
+          <p>第二部分提交成功！<br>请等待老师开启第三部分...</p>
+        </div>
+      </div>
+      
+      <!-- 第三部分 -->
+      <div id="part3" class="card hidden">
+        <h2>✍️ 第三部分：小测验</h2>
+        <div id="part3-content">
+          <!-- 题目会动态加载 -->
+        </div>
+        <div class="btn-group" id="part3-btn">
+          <button class="btn btn-success" onclick="submitPart3()">提交第三部分 ✅</button>
+        </div>
+      </div>
+      
+      <!-- 第三部分答案解析 -->
+      <div id="part3-results" class="card hidden">
+        <h2>✅ 小测验结果</h2>
+        <div id="score-display" style="text-align: center; margin-bottom: 20px; padding: 15px; background: #f0f9ff; border-radius: 12px;">
+          <h3 style="margin: 0 0 10px 0;">你的得分</h3>
+          <div style="font-size: 2em; font-weight: bold; color: var(--primary-color);" id="total-score">0/5</div>
+        </div>
+        <!-- 历史分数对比 -->
+        <div id="history-scores" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 12px;">
+          <h4 style="margin: 0 0 10px 0;">📊 历史课程分数对比</h4>
+          <div id="history-scores-content"></div>
+        </div>
+        <div id="results-content" style="margin-bottom: 20px;">
+          <!-- 答案解析会动态生成 -->
+        </div>
+        <div class="waiting-message" id="waiting-part4">
+          <div class="emoji">⏳</div>
+          <p>请等待老师开启第四部分...</p>
+        </div>
+      </div>
+      
+      <!-- 第四部分 -->
+      <div id="part4" class="card hidden">
+        <h2>🌟 第四部分：课后反思</h2>
+        <div id="part4-content">
+          <!-- 动态生成内容 -->
+        </div>
+        <div class="btn-group" id="part4-btn">
+          <button class="btn btn-success" onclick="submitPart4()">完成问卷 🎉</button>
+        </div>
+      </div>
+      
+      <!-- 完成页面 -->
+      <div id="completed-page" class="card hidden">
+        <div class="waiting-message">
+          <div class="emoji">🎉</div>
+          <p>太棒了！你已经完成了所有问卷！<br>谢谢你的参与！🌟</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 加载中 -->
+    <div id="loading" class="card hidden">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>请稍候...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 课堂黑板提示区（常驻顶部） -->
+  <div id="tipBlackboard" style="position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; z-index: 9999; box-shadow: 0 2px 15px rgba(0,0,0,0.2);">
+    <div style="max-width: 1200px; margin: 0 auto; padding: 12px 20px;">
+      <div style="display: flex; align-items: flex-start; gap: 15px;">
+        <div style="font-size: 24px; flex-shrink: 0;">📋</div>
+        <div style="flex: 1;">
+          <div style="font-weight: 600; font-size: 16px; margin-bottom: 6px;">课堂提示</div>
+          <div id="tipContent" style="font-size: 15px; line-height: 1.8; user-select: text; min-height: 24px; white-space: pre-wrap; word-wrap: break-word;" placeholder="暂无提示">
+            欢迎进入课堂，等待老师发布提示~
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 给页面内容加顶部边距，避免被黑板挡住 -->
+  <style>
+    body {
+      padding-top: 90px !important;
+    }
+    @media (max-width: 768px) {
+      body {
+        padding-top: 110px !important;
+      }
+    }
+  </style>
+  
+  <script src="js/student.js?v=2026031603"></script>
+</body>
+</html>

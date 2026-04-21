@@ -1,0 +1,46 @@
+# Exclude workspace files
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+bird_enhanced.jpg
+bird_enhanced.png
+config/
+liuhuahu_bird_map.webp
+liuhuahu_bird_map_2026.jpg
+liuhuahu_bird_map_2026.png
+liuhuahu_bird_update_202602.md
+liuhuahu_real_map.webp
+liuhuahu_ref_map.webp
+memory/
+photo_with_ai_bird.jpg
+photo_with_ai_bird.png
+photo_with_cartoon_bird.jpg
+photo_with_cartoon_bird.png
+skills/
+xiaohongshu-data/
+
+# Project node_modules
+node_modules/
+
+# Data (contains user data)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
