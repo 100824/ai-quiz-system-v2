@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>人工智能学习平台 - 历史答题记录</title>
+  <link rel="stylesheet" href="css/style.css?v=202604222350">
+</head>
+<body class="history-page">
+  <div class="container">
+    <h1 id="history-page-title">人工智能学习平台</h1>
+
+    <div class="card history-hero">
+      <div class="history-hero__content">
+        <div>
+          <p class="history-eyebrow">Learning Archive</p>
+          <h2>我的历史课堂答题数据</h2>
+          <p id="history-page-subtitle" class="history-hero__subtitle">正在加载...</p>
+        </div>
+        <button class="btn history-back-btn" onclick="window.history.back()">返回上一页</button>
+      </div>
+    </div>
+
+    <div id="history-summary" class="card history-summary hidden"></div>
+
+    <div id="history-loading" class="card">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>正在加载历史答题数据...</p>
+      </div>
+    </div>
+
+    <div id="history-empty" class="card hidden">
+      <div class="waiting-message">
+        <div class="emoji">📚</div>
+        <p>当前还没有可查看的历史课堂答题数据。</p>
+      </div>
+    </div>
+
+    <div id="history-list" class="history-list"></div>
+  </div>
+
+  <script src="js/config.js?v=2026042201"></script>
+  <script src="js/student-history.js?v=202604222350"></script>
+</body>
+</html>

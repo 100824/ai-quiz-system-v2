@@ -1,11 +1,14 @@
 {
   "name": "ai-quiz-system-v2",
   "version": "2.0.0",
-  "description": "小学AI课堂问卷调查系统",
-  "main": "backend/server.js",
+  "description": "小学AI课堂问卷调查系统（Go 后端重构版）",
+  "main": "backend-go/cmd/server/main.go",
   "scripts": {
-    "start": "node backend/server.js",
-    "dev": "nodemon backend/server.js",
+    "start": "cd backend-go && env GOPROXY=https://goproxy.cn,direct GOCACHE=$(pwd)/.cache/go-build go run ./cmd/server",
+    "frontend:start": "python3 -m http.server 3000 --directory frontend",
+    "backend:build": "cd backend-go && env GOCACHE=$(pwd)/.cache/go-build go build ./cmd/server",
+    "legacy:start": "node backend/server.js",
+    "legacy:dev": "nodemon backend/server.js",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop ai-quiz-system",
     "pm2:logs": "pm2 logs ai-quiz-system"

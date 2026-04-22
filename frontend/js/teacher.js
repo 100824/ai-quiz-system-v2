@@ -1,11 +1,141 @@
 let currentCourseId = null;
 let currentStage = 1;
+let currentPartSettings = { 1: true, 2: true, 3: true, 4: true };
+const API_BASE = window.APP_CONFIG?.apiBase || 'http://127.0.0.1:8080/api';
+let courseAutoRefreshTimer = null;
+let loadCurrentStageInFlight = false;
 
 // 页面加载完成
 document.addEventListener('DOMContentLoaded', () => {
   loadCourses();
   initTabs();
+  updateApiBaseHint();
 });
+
+function updateApiBaseHint() {
+  const apiBaseNode = document.getElementById('apiBaseHint');
+  if (apiBaseNode) {
+    apiBaseNode.textContent = API_BASE;
+    apiBaseNode.title = API_BASE;
+  }
+}
+
+function isPartEnabled(part) {
+  return currentPartSettings[String(part)] !== false && currentPartSettings[part] !== false;
+}
+
+function renderPartToggleList() {
+  const container = document.getElementById('partToggleList');
+  if (!container) return;
+
+  container.innerHTML = [1, 2, 3, 4].map((part) => `
+    <label style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 14px; background: white; border: 1px solid #d7e6fa;">
+      <input type="checkbox" class="part-toggle" data-part="${part}" ${isPartEnabled(part) ? 'checked' : ''}>
+      <span>第${part}部分</span>
+    </label>
+  `).join('');
+}
+
+function updateStageButtons() {
+  for (let part = 1; part <= 4; part++) {
+    const button = document.getElementById(`stage-btn-${part}`);
+    if (!button) continue;
+    const enabled = isPartEnabled(part);
+    button.disabled = !enabled;
+    button.style.opacity = enabled ? '1' : '0.45';
+    button.title = enabled ? '' : `第${part}部分当前已关闭`;
+  }
+}
+
+async function loadPartSettings(courseId) {
+  try {
+    const res = await fetch(`${API_BASE}/teacher/part-settings/${courseId}`);
+    const data = await safeFetchJson(res);
+    if (data.success) {
+      currentPartSettings = {};
+      (data.data.settings || []).forEach((item) => {
+        currentPartSettings[item.part] = item.enabled;
+      });
+      renderPartToggleList();
+      updateStageButtons();
+    }
+  } catch (error) {
+    console.error('加载部分启用状态失败:', error);
+  }
+}
+
+async function savePartSettings() {
+  const courseId = document.getElementById('questionCourseSelect').value || document.getElementById('stageCourseSelect').value;
+  if (!courseId) {
+    alert('请先选择课程');
+    return;
+  }
+
+  const settings = Array.from(document.querySelectorAll('.part-toggle')).map((input) => ({
+    part: Number(input.dataset.part),
+    enabled: input.checked
+  }));
+
+  if (!settings.some((item) => item.enabled)) {
+    alert('至少需要开启一个部分');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/teacher/part-settings/${courseId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings })
+    });
+    const data = await safeFetchJson(res);
+
+    if (data.success) {
+      currentPartSettings = {};
+      settings.forEach((item) => {
+        currentPartSettings[item.part] = item.enabled;
+      });
+      updateStageButtons();
+      loadQuestions();
+      loadCurrentStage();
+      alert('部分启用状态已更新');
+    } else {
+      alert(data.error || '保存失败');
+    }
+  } catch (error) {
+    alert('保存失败: ' + error.message);
+  }
+}
+
+async function safeFetchJson(response) {
+  const text = await response.text();
+  if (!text) {
+    throw new Error('服务器返回空响应');
+  }
+  return JSON.parse(text);
+}
+
+function formatPart2Answer(answer) {
+  if (!answer) return '';
+  if (typeof answer !== 'string') return String(answer);
+  try {
+    const parsed = JSON.parse(answer);
+    if (Array.isArray(parsed.labels) && parsed.labels.length > 0) {
+      return parsed.labels.join('、');
+    }
+    if (parsed.label) {
+      return parsed.label;
+    }
+    if (Array.isArray(parsed.values) && parsed.values.length > 0) {
+      return parsed.values.join('、');
+    }
+    if (parsed.value) {
+      return parsed.value;
+    }
+  } catch (error) {
+    // 历史数据可能是纯文本
+  }
+  return answer;
+}
 
 // 初始化tab切换
 function initTabs() {
@@ -27,15 +157,47 @@ function initTabs() {
       if (tab === 'class') loadClassList();
       if (tab === 'question') loadQuestionCourses();
       if (tab === 'stats') loadStatsCourses();
+
+      if (tab === 'course') {
+        startCourseAutoRefresh();
+        loadCurrentStage();
+      } else {
+        stopCourseAutoRefresh();
+      }
     });
   });
+}
+
+function isCourseTabActive() {
+  const courseTab = document.getElementById('course');
+  return !!courseTab && courseTab.classList.contains('active');
+}
+
+function startCourseAutoRefresh() {
+  stopCourseAutoRefresh();
+  if (!isCourseTabActive()) return;
+
+  courseAutoRefreshTimer = setInterval(() => {
+    if (!isCourseTabActive()) {
+      stopCourseAutoRefresh();
+      return;
+    }
+    loadCurrentStage();
+  }, 10000);
+}
+
+function stopCourseAutoRefresh() {
+  if (courseAutoRefreshTimer) {
+    clearInterval(courseAutoRefreshTimer);
+    courseAutoRefreshTimer = null;
+  }
 }
 
 // 加载课程列表
 async function loadCourses() {
   try {
-    const res = await fetch('/api/teacher/courses');
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/courses`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       currentCourseId = data.data.currentCourseId;
@@ -64,12 +226,12 @@ async function switchCourse(courseId) {
   if (courseId === currentCourseId) return;
   
   try {
-    const res = await fetch('/api/teacher/current-course', {
+    const res = await fetch(`${API_BASE}/teacher/current-course`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ courseId })
     });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       currentCourseId = courseId;
@@ -93,8 +255,8 @@ async function getCurrentStage() {
   if (!currentCourseId) return;
   
   try {
-    const res = await fetch(`/api/teacher/stage/${currentCourseId}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/stage/${currentCourseId}`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       currentStage = data.data.stage;
@@ -117,17 +279,18 @@ function closeStudentModal() {
 // 加载班级学生数量
 async function loadClassList() {
   // 所有班级默认用课程1查人数，前端不显示课程选项
-  const courseId = 1;
+  const courseId = currentCourseId || 1;
   
   try {
     // 依次加载7个班的学生数
     for (let i = 1; i <=7; i++) {
       const className = `五年级（${i}）班`;
-      const res = await fetch(`/api/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
-      const data = await res.json();
+      const res = await fetch(`${API_BASE}/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
+      const data = await safeFetchJson(res);
       
       if (data.success) {
-        const count = data.data.students.length;
+        const students = Array.isArray(data.data.students) ? data.data.students : [];
+        const count = students.length;
         document.getElementById(`class-${i}-count`).textContent = `学生数: ${count}`;
       }
     }
@@ -139,11 +302,11 @@ async function loadClassList() {
 // 查看班级学生
 async function viewClassStudents(courseId, className) {
   try {
-    const res = await fetch(`/api/teacher/class-list/${courseId}/${className}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
-      const students = data.data.students.map(s => s.student_name).join('、');
+      const students = (Array.isArray(data.data.students) ? data.data.students : []).map(s => s.student_name).join('、');
       alert(`班级 ${className} 学生:\n${students}`);
     }
   } catch (error) {
@@ -154,18 +317,17 @@ async function viewClassStudents(courseId, className) {
 // 加载题目管理的课程下拉
 async function loadQuestionCourses() {
   try {
-    const res = await fetch('/api/teacher/courses');
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/courses`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       const select = document.getElementById('questionCourseSelect');
       select.innerHTML = data.data.courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
       select.value = currentCourseId;
+      await loadPartSettings(select.value);
       // 自动加载题目
       loadQuestions();
       // 绑定下拉切换自动加载事件
-      select.addEventListener('change', loadQuestions);
-      document.getElementById('questionPartSelect').addEventListener('change', loadQuestions);
     }
   } catch (error) {
     console.error('加载课程失败:', error);
@@ -177,6 +339,7 @@ async function loadQuestions() {
   const courseId = document.getElementById('questionCourseSelect').value;
   const part = document.getElementById('questionPartSelect').value;
   if (!courseId || !part) return;
+  await loadPartSettings(courseId);
 
   // 切换部分时显示/隐藏答题指引编辑区域
   const guideSection = document.getElementById('part2GuideSection');
@@ -187,10 +350,15 @@ async function loadQuestions() {
   } else {
     guideSection.style.display = 'none';
   }
+
+  if (part == 4) {
+    document.getElementById('questionList').innerHTML = renderPart4QuestionPreview();
+    return;
+  }
   
   try {
-    const res = await fetch(`/api/teacher/questions/${courseId}/${part}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/questions/${courseId}/${part}`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       const html = data.data.questions.map(q => {
@@ -225,11 +393,35 @@ async function loadQuestions() {
   }
 }
 
+function renderPart4QuestionPreview() {
+  return `
+    <div class="question-item">
+      <h4>第四部分为动态反思题</h4>
+      <p>第四部分不会像前 1-3 部分一样完全固定，它会根据学生第三部分得分和第一部分预测分数动态调整提示内容。</p>
+    </div>
+    <div class="question-item">
+      <h4>1. 我的学习成果</h4>
+      <p>系统会展示“小测得分”和“预测分数”的对比，并给出反馈文案。</p>
+      <p style="color: #666;">示例反馈：你猜得很准 / 你猜高了 / 你猜低了。</p>
+    </div>
+    <div class="question-item">
+      <h4>2. 反思原因或有效方法</h4>
+      <p>如果学生实际表现达到或超过预测，系统会展示“哪些方法帮助你学得这么好”。</p>
+      <p>如果学生实际表现低于预测，系统会展示“是什么原因让你没有达到学习目标”。</p>
+    </div>
+    <div class="question-item">
+      <h4>3. 下节课如何做得更好</h4>
+      <p>系统会展示改进计划多选项和自定义输入，帮助学生形成下次课堂行动方案。</p>
+      <p style="color: #999; font-size: 12px;">第四部分当前为系统动态题，题目管理中仅提供展示预览，不支持逐题编辑。</p>
+    </div>
+  `;
+}
+
 // 加载统计的课程下拉
 async function loadStatsCourses() {
   try {
-    const res = await fetch('/api/teacher/courses');
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/courses`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       const select = document.getElementById('statsCourseSelect');
@@ -248,8 +440,8 @@ async function loadStatsClasses() {
   if (!courseId) return;
   
   try {
-    const res = await fetch(`/api/teacher/classes/${courseId}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/classes/${courseId}`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       const select = document.getElementById('statsClassSelect');
@@ -267,8 +459,8 @@ async function loadStats() {
       alert("请先选择课程");
       return;
     }
-    const res = await fetch(`/api/teacher/stats/${courseId}${className ? `?className=${encodeURIComponent(className)}` : ""}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/stats/${courseId}${className ? `?className=${encodeURIComponent(className)}` : ""}`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       const stats = data.data;
@@ -279,11 +471,11 @@ async function loadStats() {
       let notSubmittedStudents = [];
       if (className) {
         try {
-          const classRes = await fetch(`/api/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
-          const classData = await classRes.json();
+          const classRes = await fetch(`${API_BASE}/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
+          const classData = await safeFetchJson(classRes);
           if (classData.success) {
-            const allStudents = classData.data.students.map(s => s.student_name);
-            const submittedStudents = stats.students.map(s => s.student_name);
+            const allStudents = (Array.isArray(classData.data.students) ? classData.data.students : []).map(s => s.student_name);
+            const submittedStudents = (Array.isArray(stats.students) ? stats.students : []).map(s => s.student_name);
             totalClass = allStudents.length;
             notSubmittedStudents = allStudents.filter(name => !submittedStudents.includes(name));
           }
@@ -295,7 +487,7 @@ async function loadStats() {
       // 完成情况
       html += '<div class="stats-section"><h4>各部分完成情况</h4>';
       if (className && totalClass > 0) {
-        html += `<p><strong>班级总人数：</strong>${totalClass}人，已答题：${stats.students.length}人，未提交：${notSubmittedStudents.length}人</p>`;
+        html += `<p><strong>班级总人数：</strong>${totalClass}人，已答题：${(Array.isArray(stats.students) ? stats.students : []).length}人，未提交：${notSubmittedStudents.length}人</p>`;
         if (notSubmittedStudents.length > 0) {
           html += `<p style="color: #f56c6c;"><strong>未提交学生：</strong>${notSubmittedStudents.join('、')}</p>`;
         }
@@ -363,7 +555,7 @@ async function loadStats() {
       // 学生列表
       html += '<div class="stats-section"><h4>学生完成情况</h4>';
       html += '<table class="stats-table"><thead><tr><th>班级</th><th>姓名</th><th>完成状态</th><th>第三部分得分</th><th>操作</th></tr></thead><tbody>';
-      stats.students.forEach(s => {
+      (Array.isArray(stats.students) ? stats.students : []).forEach(s => {
         const status = s.part4_answers ? '已完成全部' : s.part3_answers ? '完成到第三部分' : s.part2_answer ? '完成到第二部分' : s.part1_answers ? '完成到第一部分' : '未开始';
         const score = s.part3_score !== null ? `${s.part3_score}/5` : '未完成';
         const studentJson = encodeURIComponent(JSON.stringify(s));
@@ -382,16 +574,17 @@ async function loadStats() {
 // 编辑班级学生名单
 async function editClassStudents(className) {
   currentEditClassName = className;
-  const courseId = 1; // 前端不显示课程，默认用1
+  const courseId = currentCourseId || 1;
   
   // 先获取现有学生名单
   try {
-    const res = await fetch(`/api/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
+    const data = await safeFetchJson(res);
     let defaultNames = '';
+    const students = Array.isArray(data.data.students) ? data.data.students : [];
     
-    if (data.success && data.data.students.length > 0) {
-      defaultNames = data.data.students.map(s => s.student_name).join('\n');
+    if (data.success && students.length > 0) {
+      defaultNames = students.map(s => s.student_name).join('\n');
     }
     
     // 打开模态框
@@ -431,7 +624,7 @@ async function saveStudentList() {
 
 async function importClass(courseId, className, studentNames) {
   try {
-    const res = await fetch('/api/teacher/class-list', {
+    const res = await fetch(`${API_BASE}/teacher/class-list`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ courseId, className, studentNames })
@@ -439,8 +632,6 @@ async function importClass(courseId, className, studentNames) {
     const data = await res.json();
     
     if (data.success) {
-      alert('导入成功');
-      loadClassList();
     }
   } catch (error) {
     alert('导入失败: ' + error.message);
@@ -498,8 +689,8 @@ async function editQuestion(id) {
   
   try {
     // 先加载题目详情
-    const res = await fetch(`/api/teacher/questions/${courseId}/${part}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/questions/${courseId}/${part}`);
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       currentEditingQuestion = data.data.questions.find(q => q.id === id);
@@ -620,10 +811,11 @@ async function saveQuestion() {
   }
   
   try {
-    const res = await fetch(`/api/teacher/question/${questionId}`, {
+    const res = await fetch(`${API_BASE}/teacher/question/${questionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        questionType,
         questionText,
         options,
         correctAnswer,
@@ -631,7 +823,7 @@ async function saveQuestion() {
       })
     });
     
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     if (data.success) {
       alert('题目保存成功！');
       closeQuestionModal();
@@ -646,66 +838,76 @@ async function saveQuestion() {
 
 // 加载当前阶段
 async function loadCurrentStage() {
+  if (loadCurrentStageInFlight) return;
+
   const courseId = document.getElementById('stageCourseSelect').value;
   const className = document.getElementById('stageClassSelect').value;
   if (!courseId || !className) {
     document.getElementById('completionContent').innerHTML = '<p style="margin: 5px 0;">请先选择班级和课程查看完成情况</p>';
     return;
   }
-  
-  // 自动保存班级和课程的绑定关系
-  try {
-    await fetch('/api/teacher/bind-class-course', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ className, courseId })
-    });
-  } catch (e) {
-    console.error('绑定班级课程失败:', e);
-  }
-  
-  try {
-    const res = await fetch(`/api/teacher/stage/${courseId}?className=${encodeURIComponent(className)}`);
-    const data = await res.json();
-    
-    if (data.success) {
-      document.getElementById('currentStageText').textContent = `第${data.data.stage}部分`;
-    }
-  } catch (error) {
-    console.error('加载当前阶段失败:', error);
-  }
 
-  // 加载完成情况统计
+  loadCurrentStageInFlight = true;
+
   try {
-    // 加载统计数据
-    const statsRes = await fetch(`/api/teacher/stats/${courseId}?className=${encodeURIComponent(className)}`);
-    const statsData = await statsRes.json();
+    await loadPartSettings(courseId);
     
-    // 加载班级名单总人数
-    const classRes = await fetch(`/api/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
-    const classData = await classRes.json();
-    
-    if (statsData.success && classData.success) {
-      const stats = statsData.data;
-      const classStudents = classData.data.students.map(s => s.student_name);
-      const totalClass = classStudents.length;
-      const totalSubmitted = stats.students.length;
-      const notSubmitted = totalClass - totalSubmitted;
-      
-      let html = '';
-      html += `<p style="margin: 5px 0;"><strong>班级总人数：</strong>${totalClass}人，已答题：${totalSubmitted}人，未提交：${notSubmitted}人</p>`;
-      html += `<div style="height: 1px; background: #eee; margin: 10px 0;"></div>`;
-      for (let i = 1; i <= 4; i++) {
-        const part = stats[`part${i}`];
-        const rate = totalClass > 0 ? Math.round(part.completed / totalClass * 100) : 0;
-        html += `<p style="margin: 5px 0;"><strong>第${i}部分：</strong>${part.completed}/${totalClass} 人完成 (${rate}%)</p>`;
-      }
-      html += `<p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">👉 切换班级或课程会自动刷新完成情况</p>`;
-      document.getElementById('completionContent').innerHTML = html;
+    // 自动保存班级和课程的绑定关系
+    try {
+      await fetch(`${API_BASE}/teacher/bind-class-course`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ className, courseId })
+      });
+    } catch (e) {
+      console.error('绑定班级课程失败:', e);
     }
-  } catch (error) {
-    console.error('加载完成情况失败:', error);
-    document.getElementById('completionContent').innerHTML = '<p style="margin: 5px 0; color: #f56c6c;">加载完成情况失败，请重试</p>';
+
+    try {
+      const res = await fetch(`${API_BASE}/teacher/stage/${courseId}?className=${encodeURIComponent(className)}`);
+      const data = await safeFetchJson(res);
+      
+      if (data.success) {
+        document.getElementById('currentStageText').textContent = `第${data.data.stage}部分`;
+      }
+    } catch (error) {
+      console.error('加载当前阶段失败:', error);
+    }
+
+    // 加载完成情况统计
+    try {
+      // 加载统计数据
+      const statsRes = await fetch(`${API_BASE}/teacher/stats/${courseId}?className=${encodeURIComponent(className)}`);
+      const statsData = await safeFetchJson(statsRes);
+      
+      // 加载班级名单总人数
+      const classRes = await fetch(`${API_BASE}/teacher/class-list/${courseId}/${encodeURIComponent(className)}`);
+      const classData = await safeFetchJson(classRes);
+      
+      if (statsData.success && classData.success) {
+        const stats = statsData.data;
+        const classStudents = (Array.isArray(classData.data.students) ? classData.data.students : []).map(s => s.student_name);
+        const totalClass = classStudents.length;
+        const totalSubmitted = (Array.isArray(stats.students) ? stats.students : []).length;
+        const notSubmitted = totalClass - totalSubmitted;
+        
+        let html = '';
+        html += `<p style="margin: 5px 0;"><strong>班级总人数：</strong>${totalClass}人，已答题：${totalSubmitted}人，未提交：${notSubmitted}人</p>`;
+        html += `<div style="height: 1px; background: #eee; margin: 10px 0;"></div>`;
+        for (let i = 1; i <= 4; i++) {
+          const part = stats[`part${i}`];
+          const rate = totalClass > 0 ? Math.round(part.completed / totalClass * 100) : 0;
+          html += `<p style="margin: 5px 0;"><strong>第${i}部分：</strong>${part.completed}/${totalClass} 人完成 (${rate}%)</p>`;
+        }
+        html += `<p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">👉 停留在课程管理页时，每 10 秒自动刷新一次</p>`;
+        document.getElementById('completionContent').innerHTML = html;
+      }
+    } catch (error) {
+      console.error('加载完成情况失败:', error);
+      document.getElementById('completionContent').innerHTML = '<p style="margin: 5px 0; color: #f56c6c;">加载完成情况失败，请重试</p>';
+    }
+  } finally {
+    loadCurrentStageInFlight = false;
   }
 }
 
@@ -717,16 +919,20 @@ async function setStage(stage) {
     alert('请先选择课程和班级');
     return;
   }
+  if (!isPartEnabled(stage)) {
+    alert(`第${stage}部分当前已关闭，请先在题目管理中开启后再切换`);
+    return;
+  }
   
   if (!confirm(`确定要将${className}切换到第${stage}部分吗？`)) return;
   
   try {
-    const res = await fetch('/api/teacher/stage', {
+    const res = await fetch(`${API_BASE}/teacher/stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ courseId, stage, className })
     });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       alert(`已成功切换到第${stage}部分！`);
@@ -773,7 +979,7 @@ function showStudentDetail(student) {
   if (student.part2_answer) {
     html += `<div style="margin-bottom: 20px; padding: 15px; background: #e8f4fd; border-radius: 8px;">
       <h4 style="margin: 0 0 10px 0;">💬 第二部分：思考与讨论</h4>
-      <p>${student.part2_answer}</p>
+      <p>${formatPart2Answer(student.part2_answer)}</p>
     </div>`;
   } else {
     html += `<div style="margin-bottom: 20px; padding: 15px; background: #fff3f3; border-radius: 8px;">
@@ -831,6 +1037,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // 绑定进度控制下拉变化事件
   document.getElementById('stageCourseSelect').addEventListener('change', loadCurrentStage);
   document.getElementById('stageClassSelect').addEventListener('change', loadCurrentStage);
+  document.getElementById('questionCourseSelect').addEventListener('change', loadQuestions);
+  document.getElementById('questionPartSelect').addEventListener('change', loadQuestions);
+  document.getElementById('statsCourseSelect').addEventListener('change', loadStatsClasses);
 
   // 处理提示语输入框回车换行，统一用<br>保证格式一致
   const tipInput = document.getElementById('tipInput');
@@ -849,6 +1058,19 @@ document.addEventListener('DOMContentLoaded', () => {
       document.execCommand('insertHTML', false, '<br><br>');
     }
   });
+
+  // 处理答案解析输入框回车换行
+  const explanationInput = document.getElementById('editExplanation');
+  explanationInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      document.execCommand('insertHTML', false, '<br><br>');
+    }
+  });
+
+  if (isCourseTabActive()) {
+    startCourseAutoRefresh();
+  }
 });
 // 导出统计数据
 async function exportStats() {
@@ -858,7 +1080,7 @@ async function exportStats() {
     alert("请先选择课程");
     return;
   }
-  const url = `/api/teacher/stats/${courseId}/export${className ? `?className=${encodeURIComponent(className)}` : ""}`;
+  const url = `${API_BASE}/teacher/stats/${courseId}/export${className ? `?className=${encodeURIComponent(className)}` : ""}`;
   window.open(url, "_blank");
 }
 
@@ -885,8 +1107,8 @@ async function loadPart2Guide() {
   if (!courseId) return;
   
   try {
-    const res = await fetch(`/api/teacher/part2-guide/${courseId}`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/teacher/part2-guide/${courseId}`);
+    const data = await safeFetchJson(res);
     if (data.success) {
       document.getElementById('part2GuideInput').innerHTML = data.data.guide || '';
     }
@@ -906,12 +1128,12 @@ async function savePart2Guide() {
   }
   
   try {
-    const res = await fetch(`/api/teacher/part2-guide/${courseId}`, {
+    const res = await fetch(`${API_BASE}/teacher/part2-guide/${courseId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content })
     });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     if (data.success) {
       alert('答题指引保存成功！学生端将实时显示');
     } else {
@@ -956,12 +1178,12 @@ async function submitTip() {
   }
   
   try {
-    const res = await fetch('/api/teacher/tip', {
+    const res = await fetch(`${API_BASE}/teacher/tip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ courseId, className, content })
     });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     
     if (data.success) {
       alert('提示语提交成功！学生端将实时显示');

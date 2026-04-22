@@ -25,14 +25,19 @@ xiaohongshu-data/
 # Project node_modules
 node_modules/
 
-# Data (contains user data)
-data/*.db
-data/*.db-wal
-data/*.db-shm
+# Data
+data/
+backend-go/data/*.db-wal
+backend-go/data/*.db-shm
+backend-go/data/*.bak*
+!backend-go/data/
+!backend-go/data/quiz-system.db
 
 # Logs
 logs/
 *.log
+backend-go/.cache/
+backend-go/server
 
 # OS
 .DS_Store

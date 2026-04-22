@@ -6,12 +6,12 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>🎓 课堂问卷调查 - 学生端</title>
+  <title>人工智能学习平台 - 学生端</title>
   <link rel="stylesheet" href="css/style.css?v=20260309">
 </head>
 <body>
   <div class="container">
-    <h1 id="course-title">🎓 课堂问卷调查</h1>
+    <h1 id="course-title">人工智能学习平台</h1>
     
     <!-- 登录页面 -->
     <div id="login-page" class="card">
@@ -107,11 +107,6 @@
           <h3 style="margin: 0 0 10px 0;">你的得分</h3>
           <div style="font-size: 2em; font-weight: bold; color: var(--primary-color);" id="total-score">0/5</div>
         </div>
-        <!-- 历史分数对比 -->
-        <div id="history-scores" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 12px;">
-          <h4 style="margin: 0 0 10px 0;">📊 历史课程分数对比</h4>
-          <div id="history-scores-content"></div>
-        </div>
         <div id="results-content" style="margin-bottom: 20px;">
           <!-- 答案解析会动态生成 -->
         </div>
@@ -138,6 +133,9 @@
           <div class="emoji">🎉</div>
           <p>太棒了！你已经完成了所有问卷！<br>谢谢你的参与！🌟</p>
         </div>
+        <div class="btn-group" style="margin-top: 20px;">
+          <button class="btn btn-primary" onclick="openHistoryPage()">查看我的历史课堂答题数据</button>
+        </div>
       </div>
     </div>
     
@@ -151,15 +149,13 @@
   </div>
 
   <!-- 课堂黑板提示区（常驻顶部） -->
-  <div id="tipBlackboard" style="position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; z-index: 9999; box-shadow: 0 2px 15px rgba(0,0,0,0.2);">
+  <div id="tipBlackboard" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; z-index: 9999; box-shadow: 0 2px 15px rgba(0,0,0,0.2);">
     <div style="max-width: 1200px; margin: 0 auto; padding: 12px 20px;">
       <div style="display: flex; align-items: flex-start; gap: 15px;">
         <div style="font-size: 24px; flex-shrink: 0;">📋</div>
         <div style="flex: 1;">
           <div style="font-weight: 600; font-size: 16px; margin-bottom: 6px;">课堂提示</div>
-          <div id="tipContent" style="font-size: 15px; line-height: 1.8; user-select: text; min-height: 24px; white-space: pre-wrap; word-wrap: break-word;" placeholder="暂无提示">
-            欢迎进入课堂，等待老师发布提示~
-          </div>
+          <div id="tipContent" style="font-size: 15px; line-height: 1.8; user-select: text; min-height: 24px; white-space: pre-wrap; word-wrap: break-word;" placeholder="暂无提示"></div>
         </div>
       </div>
     </div>
@@ -168,15 +164,16 @@
   <!-- 给页面内容加顶部边距，避免被黑板挡住 -->
   <style>
     body {
-      padding-top: 90px !important;
+      padding-top: 0 !important;
     }
     @media (max-width: 768px) {
       body {
-        padding-top: 110px !important;
+        padding-top: 0 !important;
       }
     }
   </style>
   
-  <script src="js/student.js?v=2026031603"></script>
+  <script src="js/config.js?v=2026042201"></script>
+  <script src="js/student.js?v=2026042201"></script>
 </body>
 </html>

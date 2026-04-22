@@ -12,8 +12,10 @@ let currentClassStudents = []; // 当前选择班级的学生名单
 let historyScores = []; // 学生历史课程分数对比数据
 let currentLessonNumber = 1; // 当前课程的课程序号
 let part2Explanation = null; // 第二部分题目解析
+let currentPartSettings = { 1: true, 2: true, 3: true, 4: true };
+let currentPart2Question = null;
 
-const API_BASE = '/api';
+const API_BASE = window.APP_CONFIG?.apiBase || 'http://127.0.0.1:8080/api';
 
 // 通用选项点击处理
 function handleOptionClick(e) {
@@ -75,10 +77,6 @@ function bindOptionClickEvents() {
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
-  // 清除缓存
-  localStorage.clear();
-  sessionStorage.clear();
-  
   // 从URL获取courseId
   const urlParams = new URLSearchParams(window.location.search);
   currentCourseId = urlParams.get('courseId');
@@ -93,7 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!className) return;
     
     try {
-      const res = await fetch(`${API_BASE}/teacher/class-list/1/${encodeURIComponent(className)}`);
+      const courseHint = currentCourseId || 0;
+      const res = await fetch(`${API_BASE}/teacher/class-list/${courseHint}/${encodeURIComponent(className)}`);
       
       if (!res.ok) {
         console.warn(`加载班级名单请求失败，状态码: ${res.status}`);
@@ -158,6 +157,11 @@ document.addEventListener('DOMContentLoaded', () => {
       nameDropdown.style.display = 'none';
     }
   });
+
+  window.addEventListener('resize', () => {
+    const blackboard = document.getElementById('tipBlackboard');
+    applyTipLayout(!!blackboard && blackboard.style.display !== 'none');
+  });
 });
 
 // 显示/隐藏加载
@@ -176,6 +180,65 @@ async function safeFetchJson(response) {
   } catch (e) {
     console.error('JSON解析失败，响应内容:', e);
     throw new Error('服务器响应格式错误，请重试');
+  }
+}
+
+function renderRichExplanation(target, content) {
+  if (!target) return;
+  const normalized = String(content || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n/g, '<br>');
+  target.innerHTML = normalized;
+}
+
+function applyTipLayout(visible) {
+  const blackboard = document.getElementById('tipBlackboard');
+  if (blackboard) {
+    blackboard.style.display = visible ? 'block' : 'none';
+  }
+
+  document.body.style.paddingTop = visible
+    ? (window.innerWidth <= 768 ? '110px' : '90px')
+    : '0px';
+}
+
+function openHistoryPage() {
+  if (!currentStudentId) {
+    alert('未找到当前学生信息');
+    return;
+  }
+  const params = new URLSearchParams({
+    studentId: currentStudentId,
+    courseId: String(currentCourseId || ''),
+    studentName: document.getElementById('student-name')?.value?.trim() || '',
+    className: currentClassName || ''
+  });
+  window.location.href = `student-history.html?${params.toString()}`;
+}
+
+function parseQuestionOptions(rawOptions) {
+  if (!rawOptions) return [];
+  try {
+    let options = JSON.parse(rawOptions);
+    if (typeof options === 'string') {
+      options = JSON.parse(options);
+    }
+    return Array.isArray(options) ? options : [];
+  } catch (error) {
+    console.error('解析题目选项失败:', error);
+    return [];
+  }
+}
+
+function parseStoredPart2Answer(raw) {
+  if (!raw) return null;
+  if (typeof raw !== 'string') return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (error) {
+    return null;
   }
 }
 
@@ -241,9 +304,10 @@ async function startSurvey() {
       currentStage = statusResult.data.currentStage;
       historyScores = statusResult.data.historyScores || []; // 保存历史分数对比数据
       currentLessonNumber = statusResult.data.lessonNumber || 1; // 保存当前课程的课程序号
+      currentPartSettings = normalizePartSettings(statusResult.data.partSettings);
       
       // 更新标题
-      document.getElementById('course-title').textContent = `🎓 ${statusResult.data.courseName} - 问卷调查`;
+      document.getElementById('course-title').textContent = `人工智能学习平台 · ${statusResult.data.courseName}`;
       document.getElementById('lesson-name').textContent = statusResult.data.courseName;
       
       // 加载题目（加载成功后再切换页面）
@@ -277,6 +341,7 @@ async function startSurvey() {
 // 加载所有部分的题目
 async function loadAllQuestions() {
   for (let part = 1; part <= 3; part++) {
+    if (!isPartEnabled(part)) continue;
     try {
       const res = await fetch(`${API_BASE}/student/questions/${part}${currentCourseId ? `?courseId=${currentCourseId}` : ''}`);
       if (!res.ok) throw new Error(`请求失败，状态码: ${res.status}`);
@@ -292,6 +357,27 @@ async function loadAllQuestions() {
       throw error; // 抛出错误让上层捕获
     }
   }
+}
+
+function normalizePartSettings(partSettings) {
+  const defaults = { 1: true, 2: true, 3: true, 4: true };
+  if (!partSettings) return defaults;
+  Object.keys(defaults).forEach((part) => {
+    defaults[part] = partSettings[part] !== false;
+  });
+  return defaults;
+}
+
+function isPartEnabled(part) {
+  return currentPartSettings[String(part)] !== false && currentPartSettings[part] !== false;
+}
+
+function getNextRequiredPart(partSubmittedMap) {
+  for (let part = 1; part <= 4; part++) {
+    if (!isPartEnabled(part)) continue;
+    if (!partSubmittedMap[part]) return part;
+  }
+  return null;
 }
 
 // 加载第二部分答题指引
@@ -322,22 +408,7 @@ function renderQuestions(part, questions) {
   
   questions.forEach((q, index) => {
     const qNum = index + 1;
-    let options = [];
-    if (q.options) {
-      try {
-        options = JSON.parse(q.options);
-        // 兼容双重转义的情况
-        if (typeof options === 'string') {
-          options = JSON.parse(options);
-        }
-        if (!Array.isArray(options)) {
-          options = [];
-        }
-      } catch (e) {
-        console.error('解析题目选项失败:', e);
-        options = [];
-      }
-    }
+    const options = parseQuestionOptions(q.options);
     
     if (part === 1) {
       // 第一部分：评分题+多选题
@@ -379,15 +450,42 @@ function renderQuestions(part, questions) {
     } else if (part === 2) {
       // 加载答题指引
       loadPart2Guide();
-      // 第二部分：开放题
+      currentPart2Question = q;
       part2Explanation = q.explanation || ''; // 保存解析到全局变量
+      html += `<h3>${q.question_text}</h3>`;
+      if (q.question_type === 'text') {
+        html += `
+          <p style="margin-bottom: 20px; color: #666;">请写下你的思考，越详细越好哦！</p>
+          <div class="input-group">
+            <textarea id="part2-answer" rows="8" placeholder="请在这里写下你的答案..."></textarea>
+          </div>
+        `;
+      } else if (q.question_type === 'multi') {
+        html += `
+          <p style="margin-bottom: 20px; color: #666;">请选择所有符合你的答案。</p>
+          <div class="options" id="part2-answer-options">
+            ${options.map((opt, i) => `
+              <div class="option">
+                <input type="checkbox" id="part2-option-${i}" value="${opt}">
+                <label for="part2-option-${i}">${opt}</label>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        html += `
+          <p style="margin-bottom: 20px; color: #666;">请选择一个最符合的答案。</p>
+          <div class="options" id="part2-answer-options">
+            ${options.map((opt, i) => `
+              <div class="option">
+                <input type="radio" id="part2-option-${i}" name="part2-answer" value="${opt}">
+                <label for="part2-option-${i}">${opt}</label>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
       html += `
-        <h3>${q.question_text}</h3>
-        <p style="margin-bottom: 20px; color: #666;">请写下你的思考，越详细越好哦！</p>
-        <div class="input-group">
-          <textarea id="part2-answer" rows="8" placeholder="请在这里写下你的答案..."></textarea>
-        </div>
-        <!-- 解析区域，提交后显示 -->
         <div id="part2-results" class="hidden" style="margin-top: 30px; padding: 20px; background: #f0f9ff; border-radius: 8px;">
           <h4 style="color: #1890ff; margin-bottom: 10px;">💡 参考解析</h4>
           <p id="part2-explanation-content" style="line-height: 1.6; margin: 0;"></p>
@@ -466,10 +564,32 @@ function restoreSubmittedData() {
   
   // 恢复第二部分
   if (surveyData.part2_answer) {
-    document.getElementById('part2-answer').value = surveyData.part2_answer;
+    const parsedPart2 = parseStoredPart2Answer(surveyData.part2_answer);
+    if (currentPart2Question && currentPart2Question.question_type === 'text') {
+      const part2Input = document.getElementById('part2-answer');
+      if (part2Input) {
+        part2Input.value = parsedPart2?.value || surveyData.part2_answer;
+      }
+    } else if (currentPart2Question && currentPart2Question.question_type === 'multi') {
+      const values = parsedPart2?.values || [];
+      values.forEach((value) => {
+        const input = Array.from(document.querySelectorAll('#part2-answer-options input')).find((node) => node.value === value);
+        if (input) {
+          input.checked = true;
+          input.closest('.option')?.classList.add('selected');
+        }
+      });
+    } else {
+      const value = parsedPart2?.value || surveyData.part2_answer;
+      const input = Array.from(document.querySelectorAll('#part2-answer-options input')).find((node) => node.value === value);
+      if (input) {
+        input.checked = true;
+        input.closest('.option')?.classList.add('selected');
+      }
+    }
     // 显示解析
     if (part2Explanation) {
-      document.getElementById('part2-explanation-content').innerHTML = part2Explanation;
+      renderRichExplanation(document.getElementById('part2-explanation-content'), part2Explanation);
       document.getElementById('part2-results').classList.remove('hidden');
     }
     lockPart(2);
@@ -498,14 +618,8 @@ function restoreSubmittedData() {
   }
 }
 
-// 渲染历史分数对比
-function renderHistoryScores() {
-  const container = document.getElementById('history-scores-content');
-  if (!container || historyScores.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: #999; margin: 0;">暂无历史课程数据</p>';
-    return;
-  }
-
+// 构建历史分数与预测对比内容
+function buildHistoryScoresHtml() {
   // 加上当前课程的分数（如果已经提交了第三部分），只保留当前课程之前的历史课程（前N-1节课）
   let allScores = historyScores.filter(item => item.lessonNumber < currentLessonNumber);
   if (surveyData && surveyData.part3_score !== null && surveyData.part1_answers) {
@@ -515,6 +629,10 @@ function renderHistoryScores() {
       actualScore: surveyData.part3_score,
       predictedScore: surveyData.part1_answers.predictionScore || 0
     });
+  }
+
+  if (allScores.length === 0) {
+    return '<p style="text-align: center; color: #999; margin: 0;">暂无历史课程数据</p>';
   }
 
   // 渲染所有分数
@@ -530,7 +648,7 @@ function renderHistoryScores() {
     `;
   });
 
-  container.innerHTML = html;
+  return html;
 }
 
 // 锁定部分
@@ -562,6 +680,12 @@ function updateUI() {
   const part2Submitted = surveyData && surveyData.part2_answer;
   const part3Submitted = surveyData && surveyData.part3_answers;
   const part4Submitted = surveyData && surveyData.part4_answers;
+  const partSubmittedMap = {
+    1: !!part1Submitted,
+    2: !!part2Submitted,
+    3: !!part3Submitted,
+    4: !!part4Submitted
+  };
   
   if (part4Submitted) {
     document.getElementById('completed-page').classList.remove('hidden');
@@ -578,21 +702,13 @@ function updateUI() {
   if (part3Submitted) {
     document.getElementById('part3').classList.remove('hidden');
     document.getElementById('part3-results').classList.remove('hidden');
-    // 渲染历史分数对比
-    renderHistoryScores();
-    // 当教师已经开启第四部分时，隐藏等待提示
-    if (currentStage >= 4) {
-      document.getElementById('waiting-part4').classList.add('hidden');
-    } else {
-      document.getElementById('waiting-part4').classList.remove('hidden');
-    }
   }
   
-  // 计算学生当前需要完成的阶段（按提交顺序递增，必须按1→2→3→4依次完成）
-  let currentStudentStage = 1;
-  if (part1Submitted) currentStudentStage = 2;
-  if (part1Submitted && part2Submitted) currentStudentStage = 3;
-  if (part1Submitted && part2Submitted && part3Submitted) currentStudentStage = 4;
+  const currentStudentStage = getNextRequiredPart(partSubmittedMap);
+  if (currentStudentStage === null) {
+    document.getElementById('completed-page').classList.remove('hidden');
+    return;
+  }
 
   // 显示当前学生需要填写的部分：如果教师开启的阶段 >= 学生当前要完成的阶段，就显示该阶段让学生填写
   if (currentStudentStage <= currentStage) {
@@ -614,6 +730,15 @@ function updateUI() {
       document.getElementById('waiting-part2').classList.remove('hidden');
     } else if (currentStudentStage === 3 && currentStage === 2) {
       document.getElementById('waiting-part3').classList.remove('hidden');
+    } else if (currentStudentStage === 4 && isPartEnabled(4)) {
+      const waitNode = part3Submitted ? document.getElementById('waiting-part4') : document.getElementById('waiting-part3');
+      if (waitNode) {
+        waitNode.classList.remove('hidden');
+        const textNode = waitNode.querySelector('p');
+        if (textNode) {
+          textNode.innerHTML = '已完成当前开放部分！<br>请等待老师开启第四部分...';
+        }
+      }
     } else if (currentStudentStage === 3 && currentStage === 3) {
       document.getElementById('waiting-part3').classList.remove('hidden');
     }
@@ -623,37 +748,49 @@ function updateUI() {
 // 生成第四部分内容
 function generatePart4Content() {
   const container = document.getElementById('part4-content');
-  if (!container || !part3Score || predictionScore === null) return;
+  if (!container) return;
   
   // 计算对比结果
   let reflection = '';
   let feedbackText = '';
   let feedbackClass = '';
-  
-  if (part3Score === predictionScore) {
-    reflection = 'equal';
-    feedbackText = '你猜得很准，说明你很了解自己！';
-    feedbackClass = 'success';
-  } else if (part3Score < predictionScore) {
-    reflection = 'low';
-    feedbackText = '你猜高了，可能有些地方没听懂哦。';
-    feedbackClass = 'warning';
+  const hasQuizScore = part3Score !== null && part3Score !== undefined;
+  const hasPrediction = predictionScore !== null && predictionScore !== undefined;
+
+  if (hasQuizScore && hasPrediction) {
+    if (part3Score === predictionScore) {
+      reflection = 'equal';
+      feedbackText = '你猜得很准，说明你很了解自己！';
+      feedbackClass = 'success';
+    } else if (part3Score < predictionScore) {
+      reflection = 'low';
+      feedbackText = '你猜高了，可能有些地方没听懂哦。';
+      feedbackClass = 'warning';
+    } else {
+      reflection = 'high';
+      feedbackText = '你猜低了，其实你比想象中厉害！';
+      feedbackClass = 'success';
+    }
   } else {
-    reflection = 'high';
-    feedbackText = '你猜低了，其实你比想象中厉害！';
+    reflection = 'generic';
+    feedbackText = '这一部分已切换为通用课后反思，请根据本节课的学习情况完成总结。';
     feedbackClass = 'success';
   }
   
   let html = `
+    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 12px;">
+      <h3 style="margin: 0 0 10px 0;">📊 历史与预测分数对比</h3>
+      ${buildHistoryScoresHtml()}
+    </div>
     <h3>1. 我的学习成果 📊</h3>
     <div class="score-compare">
       <div class="score-item">
         <div class="label">小测得分</div>
-        <div class="value">${part3Score}</div>
+        <div class="value">${hasQuizScore ? part3Score : '未开启'}</div>
       </div>
       <div class="score-item">
         <div class="label">预测分数</div>
-        <div class="value">${predictionScore}</div>
+        <div class="value">${hasPrediction ? predictionScore : '未填写'}</div>
       </div>
     </div>
     <div class="feedback ${feedbackClass}">
@@ -705,7 +842,7 @@ function generatePart4Content() {
         </div>
       </div>
     `;
-  } else {
+  } else if (reflection === 'low') {
     html += `
       <h3 style="margin-top: 25px;">2. 你觉得是什么原因，让你没有达到学习目标？（可以多选）</h3>
       <div class="options" id="part4-q2">
@@ -745,6 +882,37 @@ function generatePart4Content() {
           <input type="checkbox" id="p4-q2-custom-check">
           <label for="p4-q2-custom-check">I. 其他：</label>
           <input type="text" id="p4-q2-custom" placeholder="请写下原因..." style="margin-left: 10px; flex: 1;">
+        </div>
+      </div>
+    `;
+  } else {
+    html += `
+      <h3 style="margin-top: 25px;">2. 这节课哪些做法对你最有帮助？（可以多选）</h3>
+      <div class="options" id="part4-q2">
+        <div class="option">
+          <input type="checkbox" id="p4-q2-1" value="认真听老师讲课">
+          <label for="p4-q2-1">A. 认真听老师讲课</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-2" value="认真看学习材料">
+          <label for="p4-q2-2">B. 认真看学习材料</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-3" value="边学边做笔记">
+          <label for="p4-q2-3">C. 边学边做笔记</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-4" value="和同学一起讨论">
+          <label for="p4-q2-4">D. 和同学一起讨论</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-5" value="遇到问题及时提问">
+          <label for="p4-q2-5">E. 遇到问题及时提问</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-custom-check">
+          <label for="p4-q2-custom-check">F. 其他：</label>
+          <input type="text" id="p4-q2-custom" placeholder="请写下你的想法..." style="margin-left: 10px; flex: 1;">
         </div>
       </div>
     `;
@@ -864,10 +1032,28 @@ async function submitPart1() {
 
 // 提交第二部分
 async function submitPart2() {
-  const answer = document.getElementById('part2-answer').value.trim();
-  if (!answer) {
-    alert('请填写你的答案！');
-    return;
+  let answer = '';
+  let answers = [];
+  const questionType = currentPart2Question?.question_type || 'text';
+
+  if (questionType === 'text') {
+    answer = document.getElementById('part2-answer').value.trim();
+    if (!answer) {
+      alert('请填写你的答案！');
+      return;
+    }
+  } else if (questionType === 'multi') {
+    answers = Array.from(document.querySelectorAll('#part2-answer-options input[type="checkbox"]:checked')).map((input) => input.value);
+    if (answers.length === 0) {
+      alert('请至少选择一个答案！');
+      return;
+    }
+  } else {
+    answer = document.querySelector('#part2-answer-options input[type="radio"]:checked')?.value || '';
+    if (!answer) {
+      alert('请选择一个答案！');
+      return;
+    }
   }
   
   try {
@@ -878,7 +1064,8 @@ async function submitPart2() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         courseId: currentCourseId,
-        answer
+        answer,
+        answers
       })
     });
     
@@ -890,14 +1077,15 @@ async function submitPart2() {
     
     if (result.success) {
       // 更新本地数据
-      surveyData.part2_answer = answer;
+      if (!surveyData) surveyData = {};
+      surveyData.part2_answer = result.data.answer || answer;
       
       // 显示解析
       if (result.data.explanation) {
         part2Explanation = result.data.explanation;
       }
       if (part2Explanation) {
-        document.getElementById('part2-explanation-content').innerHTML = part2Explanation;
+        renderRichExplanation(document.getElementById('part2-explanation-content'), part2Explanation);
         document.getElementById('part2-results').classList.remove('hidden');
       }
       
@@ -962,6 +1150,7 @@ async function submitPart3() {
     if (result.success) {
       // 更新本地数据
       part3Score = result.data.score;
+      if (!surveyData) surveyData = {};
       surveyData.part3_answers = answers;
       surveyData.part3_score = part3Score;
       
@@ -971,8 +1160,6 @@ async function submitPart3() {
       // 显示结果
       document.getElementById('part3-results').classList.remove('hidden');
       document.getElementById('total-score').textContent = `${part3Score}/${result.data.total}`;
-      // 渲染历史分数对比
-      renderHistoryScores();
       
       // 渲染答案解析
       const resultsContainer = document.getElementById('results-content');
@@ -988,7 +1175,7 @@ async function submitPart3() {
             </h4>
             <p>你的答案：<strong>${res.studentAnswer}</strong></p>
             <p>正确答案：<strong>${res.correctAnswer}</strong></p>
-            <p class="explanation">解析：<span>${res.explanation || ''}</span></p>
+            <p class="explanation"><span class="label">解析：</span><span class="content">${res.explanation || ''}</span></p>
           </div>
         `;
       });
@@ -997,9 +1184,9 @@ async function submitPart3() {
       // 将解析内容用innerHTML渲染，支持加粗、标红、换行
       result.data.results.forEach((res, index) => {
         if (res.explanation) {
-          const explanationSpan = resultsContainer.querySelectorAll('.explanation span')[index];
+          const explanationSpan = resultsContainer.querySelectorAll('.explanation .content')[index];
           if (explanationSpan) {
-            explanationSpan.innerHTML = res.explanation;
+            renderRichExplanation(explanationSpan, res.explanation);
           }
         }
       });
@@ -1063,8 +1250,8 @@ async function submitPart4() {
         courseId: currentCourseId,
         answers: {
           scoreCompare: {
-            actual: part3Score,
-            predicted: predictionScore
+            actual: part3Score ?? null,
+            predicted: predictionScore ?? null
           },
           q2: {
             answers: q2Answers,
@@ -1086,7 +1273,21 @@ async function submitPart4() {
     
     if (result.success) {
       // 更新本地数据
-      surveyData.part4_answers = true;
+      if (!surveyData) surveyData = {};
+      surveyData.part4_answers = {
+        scoreCompare: {
+          actual: part3Score ?? null,
+          predicted: predictionScore ?? null
+        },
+        q2: {
+          answers: q2Answers,
+          custom: q2Custom
+        },
+        q3: {
+          answers: q3Answers,
+          custom: q3Custom
+        }
+      };
       
       // 锁定第四部分
       lockPart(4);
@@ -1112,16 +1313,35 @@ async function loadTip() {
   
   try {
     const res = await fetch(`${API_BASE}/student/tip?className=${encodeURIComponent(currentClassName)}`);
-    if (!res.ok) return;
+    const tipContent = document.getElementById('tipContent');
+    if (!res.ok) {
+      if (tipContent) {
+        tipContent.innerHTML = '';
+      }
+      applyTipLayout(false);
+      return;
+    }
     
     const result = await safeFetchJson(res);
-    if (result.success && result.data.content) {
-      document.getElementById('tipContent').innerHTML = result.data.content;
+    const content = result?.success ? String(result?.data?.content || '').trim() : '';
+    if (content) {
+      if (tipContent) {
+        tipContent.innerHTML = content;
+      }
+      applyTipLayout(true);
     } else {
-      document.getElementById('tipContent').innerHTML = '欢迎进入课堂，等待老师发布提示~';
+      if (tipContent) {
+        tipContent.innerHTML = '';
+      }
+      applyTipLayout(false);
     }
   } catch (error) {
     console.error('加载提示语失败:', error);
+    const tipContent = document.getElementById('tipContent');
+    if (tipContent) {
+      tipContent.innerHTML = '';
+    }
+    applyTipLayout(false);
   }
 }
 
@@ -1145,12 +1365,18 @@ function startPolling() {
         const newStage = result.data.currentStage;
         const newSurvey = result.data.survey || null; // 空的时候设为null
         const newHistoryScores = result.data.historyScores || [];
+        const newPartSettings = normalizePartSettings(result.data.partSettings);
         
-        if (newStage !== currentStage || JSON.stringify(newSurvey) !== JSON.stringify(surveyData) || JSON.stringify(newHistoryScores) !== JSON.stringify(historyScores)) {
+        const settingsChanged = JSON.stringify(newPartSettings) !== JSON.stringify(currentPartSettings);
+        if (newStage !== currentStage || JSON.stringify(newSurvey) !== JSON.stringify(surveyData) || JSON.stringify(newHistoryScores) !== JSON.stringify(historyScores) || settingsChanged) {
           currentStage = newStage;
           surveyData = newSurvey;
           historyScores = newHistoryScores;
           currentLessonNumber = result.data.lessonNumber || 1;
+          currentPartSettings = newPartSettings;
+          if (settingsChanged) {
+            await loadAllQuestions();
+          }
           restoreSubmittedData();
           updateUI();
         }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>问卷调查系统 - 教师端</title>
+  <title>人工智能学习平台 - 教师管理后台</title>
   <link rel="stylesheet" href="css/style.css?v=2026030902">
 </head>
 <body>
@@ -22,10 +22,11 @@
 
   <div class="container" id="mainContainer" style="display: none;">
     <header>
-      <h1>📚 小学AI课堂问卷调查系统 - 教师管理后台</h1>
+      <h1>📚 人工智能学习平台 - 教师管理后台</h1>
       <div class="header-info">
         <span id="currentCourse"></span>
         <span id="currentStage"></span>
+        <span id="apiBaseHint">加载中...</span>
       </div>
     </header>
 
@@ -62,10 +63,10 @@
           <p id="currentStageText" style="font-size: 18px; font-weight: 700; color: #42b3ff; margin: 10px 0;">第1部分</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn" onclick="setStage(1)">切换到第1部分</button>
-          <button class="btn" onclick="setStage(2)">切换到第2部分</button>
-          <button class="btn" onclick="setStage(3)">切换到第3部分</button>
-          <button class="btn" onclick="setStage(4)">切换到第4部分</button>
+          <button class="btn" id="stage-btn-1" onclick="setStage(1)">切换到第1部分</button>
+          <button class="btn" id="stage-btn-2" onclick="setStage(2)">切换到第2部分</button>
+          <button class="btn" id="stage-btn-3" onclick="setStage(3)">切换到第3部分</button>
+          <button class="btn" id="stage-btn-4" onclick="setStage(4)">切换到第4部分</button>
         </div>
         
         <!-- 完成情况展示 -->
@@ -246,6 +247,15 @@
         </select>
       </div>
 
+      <div class="card" style="padding: 20px; margin-bottom: 20px; background: #f7fbff;">
+        <h4 style="margin: 0 0 12px 0;">🔧 部分启用控制</h4>
+        <p style="margin: 0 0 14px 0; color: #5b6b7f;">关闭某个部分后，教师端将不能切换到该部分，学生端也会自动跳过该部分。</p>
+        <div id="partToggleList" style="display: flex; gap: 12px; flex-wrap: wrap;"></div>
+        <div style="margin-top: 14px;">
+          <button class="btn btn-primary" onclick="savePartSettings()">保存部分启用状态</button>
+        </div>
+      </div>
+
       <!-- 第二部分答题指引编辑区域，只有选择第二部分时显示 -->
       <div id="part2GuideSection" style="display: none; margin-bottom: 25px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
         <h4 style="margin: 0 0 15px 0;">📝 第二部分答题指引</h4>
@@ -322,19 +332,7 @@
       document.getElementById("passwordInput").focus();
     });
   </script>
-  <script src="js/teacher.js"></script>
-  <script>
-    // 导出统计数据
-    async function exportStats() {
-      const courseId = document.getElementById("statsCourseSelect").value;
-      const className = document.getElementById("statsClassSelect").value;
-      if (!courseId) {
-        alert("请先选择课程");
-        return;
-      }
-      const url = `/api/teacher/stats/${courseId}/export${className ? `?className=${encodeURIComponent(className)}` : ""}`;
-      window.open(url, "_blank");
-    }
-  </script>
+  <script src="js/config.js?v=2026042201"></script>
+  <script src="js/teacher.js?v=2026042201"></script>
 </body>
 </html>
