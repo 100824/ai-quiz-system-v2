@@ -1,7 +1,7 @@
 let currentCourseId = null;
 let currentStage = 1;
 let currentPartSettings = { 1: true, 2: true, 3: true, 4: true };
-const API_BASE = window.APP_CONFIG?.apiBase || 'http://127.0.0.1:8080/api';
+const API_BASE = window.APP_CONFIG?.apiBase || 'http://14.103.79.53:8080/api';
 let courseAutoRefreshTimer = null;
 let loadCurrentStageInFlight = false;
 

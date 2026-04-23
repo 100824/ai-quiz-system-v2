@@ -1,4 +1,4 @@
-const API_BASE = window.APP_CONFIG?.apiBase || 'http://127.0.0.1:8080/api';
+const API_BASE = window.APP_CONFIG?.apiBase || 'http://14.103.79.53:8080/api';
 
 function getQueryParam(name) {
   return new URLSearchParams(window.location.search).get(name) || '';

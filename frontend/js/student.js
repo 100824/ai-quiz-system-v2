@@ -15,7 +15,7 @@ let part2Explanation = null; // 第二部分题目解析
 let currentPartSettings = { 1: true, 2: true, 3: true, 4: true };
 let currentPart2Question = null;
 
-const API_BASE = window.APP_CONFIG?.apiBase || 'http://127.0.0.1:8080/api';
+const API_BASE = window.APP_CONFIG?.apiBase || 'http://14.103.79.53:8080/api';
 
 // 通用选项点击处理
 function handleOptionClick(e) {
