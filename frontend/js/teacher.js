@@ -4,6 +4,7 @@ let currentPartSettings = { 1: true, 2: true, 3: true, 4: true };
 const API_BASE = window.APP_CONFIG?.apiBase || 'http://14.103.79.53:8080/api';
 let courseAutoRefreshTimer = null;
 let loadCurrentStageInFlight = false;
+let currentStatsStudents = [];
 
 // 页面加载完成
 document.addEventListener('DOMContentLoaded', () => {
@@ -553,13 +554,13 @@ async function loadStats() {
       html += '</div>';
       
       // 学生列表
+      currentStatsStudents = Array.isArray(stats.students) ? stats.students : [];
       html += '<div class="stats-section"><h4>学生完成情况</h4>';
       html += '<table class="stats-table"><thead><tr><th>班级</th><th>姓名</th><th>完成状态</th><th>第三部分得分</th><th>操作</th></tr></thead><tbody>';
-      (Array.isArray(stats.students) ? stats.students : []).forEach(s => {
+      currentStatsStudents.forEach((s, index) => {
         const status = s.part4_answers ? '已完成全部' : s.part3_answers ? '完成到第三部分' : s.part2_answer ? '完成到第二部分' : s.part1_answers ? '完成到第一部分' : '未开始';
         const score = s.part3_score !== null ? `${s.part3_score}/5` : '未完成';
-        const studentJson = encodeURIComponent(JSON.stringify(s));
-        html += `<tr><td>${s.class_name}</td><td>${s.student_name}</td><td>${status}</td><td>${score}</td><td><button class="btn btn-sm" onclick="showStudentDetail(JSON.parse(decodeURIComponent('${studentJson}')))">查看详情</button></td></tr>`;
+        html += `<tr><td>${s.class_name}</td><td>${s.student_name}</td><td>${status}</td><td>${score}</td><td><button class="btn btn-sm" onclick="showStudentDetailByIndex(${index})">查看详情</button></td></tr>`;
       });
       html += '</tbody></table></div>';
       
@@ -613,7 +614,8 @@ async function saveStudentList() {
   }
   
   try {
-    await importClass(1, currentEditClassName, nameList);
+    const courseId = currentCourseId || 1;
+    await importClass(courseId, currentEditClassName, nameList);
     alert('学生名单保存成功！');
     closeStudentModal();
     loadClassList(); // 刷新人数
@@ -623,19 +625,18 @@ async function saveStudentList() {
 }
 
 async function importClass(courseId, className, studentNames) {
-  try {
-    const res = await fetch(`${API_BASE}/teacher/class-list`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ courseId, className, studentNames })
-    });
-    const data = await res.json();
-    
-    if (data.success) {
-    }
-  } catch (error) {
-    alert('导入失败: ' + error.message);
+  const res = await fetch(`${API_BASE}/teacher/class-list`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ courseId, className, studentNames })
+  });
+
+  const data = await safeFetchJson(res);
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || `请求失败，状态码: ${res.status}`);
   }
+
+  return data;
 }
 
 let currentEditingQuestion = null;
@@ -949,6 +950,15 @@ async function setStage(stage) {
 function closeStudentDetailModal() {
   document.getElementById('studentDetailModal').classList.add('hidden');
   document.getElementById('studentDetailContent').innerHTML = '';
+}
+
+function showStudentDetailByIndex(index) {
+  const student = currentStatsStudents[index];
+  if (!student) {
+    alert('未找到学生详情，请刷新后重试');
+    return;
+  }
+  showStudentDetail(student);
 }
 
 // 展示学生答题详情

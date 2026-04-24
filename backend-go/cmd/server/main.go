@@ -802,16 +802,13 @@ func (a *app) handleExportStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	buf, err := file.WriteToBuffer()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
 	filename := fmt.Sprintf("答题记录_%s_%s.xlsx", fallback(className, "所有班级"), time.Now().Format("2006-01-02"))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", urlEncode(filename)))
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
+	if _, err := file.WriteTo(w); err != nil {
+		log.Printf("write export file: %v", err)
+	}
 }
 
 func (a *app) handleStudentValidate(w http.ResponseWriter, r *http.Request) {
@@ -1260,6 +1257,9 @@ func (a *app) importClassList(courseID int, className string, studentNames []str
 	if className == "" {
 		return errors.New("班级名称不能为空")
 	}
+	if courseID <= 0 {
+		courseID = 1
+	}
 	if _, err := tx.Exec(`DELETE FROM class_lists WHERE class_name = ?`, className); err != nil {
 		return err
 	}
@@ -1278,7 +1278,7 @@ func (a *app) importClassList(courseID int, className string, studentNames []str
 			continue
 		}
 		seen[name] = struct{}{}
-		if _, err := stmt.Exec(0, className, name); err != nil {
+		if _, err := stmt.Exec(courseID, className, name); err != nil {
 			return err
 		}
 	}
