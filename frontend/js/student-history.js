@@ -1,4 +1,4 @@
-const API_BASE = window.APP_CONFIG?.apiBase || 'http://14.103.79.53:8080/api';
+const API_BASE = window.APP_CONFIG?.apiBase || `${window.location.protocol}//${window.location.hostname}:8080/api`;
 
 function getQueryParam(name) {
   return new URLSearchParams(window.location.search).get(name) || '';
@@ -52,6 +52,9 @@ function formatPart2Answer(answer) {
   if (typeof answer !== 'string') return safeText(answer);
   try {
     const parsed = JSON.parse(answer);
+    if (Array.isArray(parsed.responses) && parsed.responses.length > 0) {
+      return parsed.responses.map((item) => formatPart2ResponseLabel(item)).join('；');
+    }
     if (Array.isArray(parsed.labels) && parsed.labels.length > 0) {
       return parsed.labels.join('、');
     }
@@ -64,6 +67,53 @@ function formatPart2Answer(answer) {
     return safeText(answer);
   }
   return safeText(answer);
+}
+
+function formatPart2ResponseLabel(item) {
+  if (Array.isArray(item?.labels) && item.labels.length > 0) {
+    return item.labels.join('、');
+  }
+  if (item?.label) return item.label;
+  if (Array.isArray(item?.values) && item.values.length > 0) {
+    return item.values.join('、');
+  }
+  if (item?.value) return item.value;
+  return '未提交';
+}
+
+function parsePart2Responses(answer) {
+  if (!answer || typeof answer !== 'string') return [];
+  try {
+    const parsed = JSON.parse(answer);
+    if (Array.isArray(parsed.responses) && parsed.responses.length > 0) {
+      return parsed.responses;
+    }
+    return [parsed];
+  } catch (error) {
+    return [{ questionType: 'text', value: answer, label: answer }];
+  }
+}
+
+function formatPart2AnswerRich(answer) {
+  if (!answer) return '未提交';
+  if (typeof answer !== 'string') return safeText(answer);
+  try {
+    const parsed = JSON.parse(answer);
+    if (Array.isArray(parsed.responses) && parsed.responses.length > 0) {
+      return parsed.responses.map((item) => {
+        const value = item.questionType === 'text' && item.value
+          ? item.value
+          : escapeHtml(formatPart2ResponseLabel(item));
+        return `<div><strong>${escapeHtml(item.questionText || '第二部分题目')}</strong><br>${value}</div>`;
+      }).join('<br>');
+    }
+    if (parsed.questionType === 'text' && parsed.value) {
+      return parsed.value;
+    }
+  } catch (error) {
+    return escapeHtml(safeText(answer));
+  }
+  return escapeHtml(formatPart2Answer(answer));
 }
 
 function formatChoiceLabel(options, value) {
@@ -184,8 +234,7 @@ function renderPart2(part2, questions) {
     return '<p class="history-empty-part">这一部分未完成。</p>';
   }
 
-  const q = questions[0];
-  if (!q) {
+  if (!questions.length) {
     return buildQuestionCard(
       '题目详情',
       '第二部分',
@@ -196,14 +245,21 @@ function renderPart2(part2, questions) {
     );
   }
 
-  return buildQuestionCard(
-    '题目详情',
-    q.question_text,
-    buildAnswerRow('我的答案', escapeHtml(formatPart2Answer(part2))),
-    parseQuestionOptions(q.options),
-    q.explanation,
-    'cool'
-  );
+  const responses = parsePart2Responses(part2);
+  return questions.map((q, index) => {
+    const matched = responses.find((item) => item.questionId === q.id) || responses[index] || null;
+    const value = matched
+      ? (matched.questionType === 'text' && matched.value ? matched.value : escapeHtml(formatPart2ResponseLabel(matched)))
+      : '未提交';
+    return buildQuestionCard(
+      `题目 ${index + 1}`,
+      q.question_text,
+      buildAnswerRow('我的答案', value),
+      parseQuestionOptions(q.options),
+      q.explanation,
+      'cool'
+    );
+  }).join('');
 }
 
 function renderPart3(part3, score, questions) {
@@ -335,6 +391,19 @@ function renderSummary(items) {
     ? (scoredLessons.reduce((sum, item) => sum + Number(item.part3_score || 0), 0) / scoredLessons.length).toFixed(1)
     : '--';
   const latestLesson = items[0];
+  const compareItems = items.filter((item) => item.part1_answers && item.part3_score !== null && item.part3_score !== undefined);
+  const compareSummary = compareItems.reduce((acc, item) => {
+    const predicted = Number(item.part1_answers?.predictionScore ?? 0);
+    const actual = Number(item.part3_score ?? 0);
+    if (predicted === actual) {
+      acc.equal += 1;
+    } else if (predicted > actual) {
+      acc.high += 1;
+    } else {
+      acc.low += 1;
+    }
+    return acc;
+  }, { high: 0, equal: 0, low: 0 });
 
   return `
     <div class="history-summary__item">
@@ -352,6 +421,12 @@ function renderSummary(items) {
     <div class="history-summary__item">
       <p class="history-summary__label">最近一课</p>
       <p class="history-summary__value">${latestLesson ? `第${latestLesson.lesson_number}课` : '--'}</p>
+    </div>
+    <div class="history-summary__item history-summary__item--wide">
+      <p class="history-summary__label">预测分与实际分汇总</p>
+      <p class="history-summary__value history-summary__value--stack">
+        偏高 ${compareSummary.high} 次 ｜ 猜中 ${compareSummary.equal} 次 ｜ 偏低 ${compareSummary.low} 次
+      </p>
     </div>
   `;
 }

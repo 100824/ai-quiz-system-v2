@@ -3,7 +3,7 @@ let currentCourseId = null;
 let currentStudentId = null;
 let currentStudentName = null;
 let currentClassName = null;
-let currentStage = 1;
+let currentStage = 0;
 let surveyData = null;
 let part3Score = null;
 let predictionScore = null;
@@ -13,9 +13,84 @@ let historyScores = []; // 学生历史课程分数对比数据
 let currentLessonNumber = 1; // 当前课程的课程序号
 let part2Explanation = null; // 第二部分题目解析
 let currentPartSettings = { 1: true, 2: true, 3: true, 4: true };
-let currentPart2Question = null;
+let currentPart2Questions = [];
 
-const API_BASE = window.APP_CONFIG?.apiBase || 'http://14.103.79.53:8080/api';
+const API_BASE = window.APP_CONFIG?.apiBase || `${window.location.protocol}//${window.location.hostname}:8080/api`;
+let studentAlertCleanup = null;
+
+function inferStudentAlertType(message) {
+  const text = String(message || '');
+  if (text.includes('成功') || text.includes('完成') || text.includes('太棒了') || text.includes('得了')) {
+    return 'success';
+  }
+  if (text.includes('失败') || text.includes('错误') || text.includes('异常')) {
+    return 'error';
+  }
+  return 'warning';
+}
+
+function setupStudentAlertModal() {
+  const modal = document.getElementById('student-alert-modal');
+  const panel = modal?.querySelector('.student-alert-panel');
+  const iconNode = modal?.querySelector('.student-alert-icon');
+  const titleNode = document.getElementById('student-alert-title');
+  const messageNode = document.getElementById('student-alert-message');
+  const confirmButton = document.getElementById('student-alert-confirm');
+
+  if (!modal || !panel || !iconNode || !titleNode || !messageNode || !confirmButton) return;
+
+  const closeModal = () => {
+    modal.classList.add('hidden');
+    document.body.style.overflow = '';
+    if (studentAlertCleanup) {
+      studentAlertCleanup();
+      studentAlertCleanup = null;
+    }
+  };
+
+  window.showStudentAlert = (message, type = inferStudentAlertType(message)) => {
+    panel.classList.remove('student-alert-panel--success', 'student-alert-panel--warning', 'student-alert-panel--error');
+    panel.classList.add(`student-alert-panel--${type}`);
+
+    if (type === 'success') {
+      iconNode.textContent = '🎉';
+      titleNode.textContent = '提交成功';
+      confirmButton.textContent = String(message || '').includes('完成')
+        ? '完成闯关'
+        : '继续闯关';
+    } else if (type === 'error') {
+      iconNode.textContent = '🚨';
+      titleNode.textContent = '出现问题';
+      confirmButton.textContent = '重新查看';
+    } else {
+      iconNode.textContent = '⚠️';
+      titleNode.textContent = '还差一步';
+      confirmButton.textContent = '我知道了';
+    }
+
+    messageNode.textContent = String(message || '');
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+
+    const handleKeydown = (event) => {
+      if (event.key === 'Escape' || event.key === 'Enter') {
+        event.preventDefault();
+        closeModal();
+      }
+    };
+
+    confirmButton.onclick = closeModal;
+    window.addEventListener('keydown', handleKeydown);
+    studentAlertCleanup = () => {
+      window.removeEventListener('keydown', handleKeydown);
+      confirmButton.onclick = null;
+    };
+
+    requestAnimationFrame(() => confirmButton.focus());
+  };
+
+  window.alert = (message) => window.showStudentAlert(message);
+}
 
 // 通用选项点击处理
 function handleOptionClick(e) {
@@ -73,10 +148,13 @@ function bindOptionClickEvents() {
       input.addEventListener('change', handleInputChange);
     }
   });
+  updatePart3Progress();
 }
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
+  setupStudentAlertModal();
+
   // 从URL获取courseId
   const urlParams = new URLSearchParams(window.location.search);
   currentCourseId = urlParams.get('courseId');
@@ -192,6 +270,58 @@ function renderRichExplanation(target, content) {
   target.innerHTML = normalized;
 }
 
+function getDisplayStageLabel(stage) {
+  return Number(stage) === 0 ? '准备环节' : `第${stage}部分`;
+}
+
+function updatePart3Progress() {
+  const progressCard = document.getElementById('part3-progress');
+  const progressText = document.getElementById('part3-progress-text');
+  const progressHint = document.getElementById('part3-progress-hint');
+
+  const radios = Array.from(document.querySelectorAll('#part3-content input[type="radio"]'));
+  if (!radios.length) {
+    return [];
+  }
+
+  const questionNames = [...new Set(radios.map((input) => input.name))];
+  const answeredNames = new Set(radios.filter((input) => input.checked).map((input) => input.name));
+  const unanswered = [];
+
+  questionNames.forEach((name, index) => {
+    const block = document.getElementById(name)?.closest('.student-quiz-block');
+    if (!answeredNames.has(name)) {
+      unanswered.push(index + 1);
+      block?.classList.add('student-quiz-block--pending');
+    } else {
+      block?.classList.remove('student-quiz-block--pending');
+    }
+  });
+
+  return unanswered;
+}
+
+function resizeTextareaToContent(textarea) {
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function setupPart2TextareaAutosize() {
+  const textarea = document.getElementById('part2-answer');
+  if (!textarea) return;
+
+  const syncHeight = () => resizeTextareaToContent(textarea);
+  textarea.removeEventListener('input', syncHeight);
+  textarea.addEventListener('input', syncHeight);
+  syncHeight();
+}
+
+function shouldShowTopTipBar() {
+  const part1Submitted = !!(surveyData && surveyData.part1_answers);
+  return Number(currentStage) > 0 || part1Submitted;
+}
+
 function applyTipLayout(visible) {
   const blackboard = document.getElementById('tipBlackboard');
   if (blackboard) {
@@ -205,7 +335,7 @@ function applyTipLayout(visible) {
 
 function openHistoryPage() {
   if (!currentStudentId) {
-    alert('未找到当前学生信息');
+    window.showStudentAlert?.('未找到当前学生信息', 'error');
     return;
   }
   const params = new URLSearchParams({
@@ -242,18 +372,116 @@ function parseStoredPart2Answer(raw) {
   }
 }
 
+function getStoredPart2Responses(raw) {
+  const parsed = parseStoredPart2Answer(raw);
+  if (!parsed) return [];
+  if (Array.isArray(parsed.responses) && parsed.responses.length > 0) {
+    return parsed.responses;
+  }
+  return [parsed];
+}
+
+function normalizePart2RichText(html) {
+  return String(html || '')
+    .replace(/<div><br><\/div>/gi, '<div></div>')
+    .replace(/<div>/gi, '<br>')
+    .replace(/<\/div>/gi, '')
+    .replace(/^<br>/i, '')
+    .trim();
+}
+
+function getPart2Editor(questionId = '') {
+  const suffix = questionId ? `-${questionId}` : '';
+  return document.getElementById(`part2-answer-editor${suffix}`);
+}
+
+function countPart2Highlights(root) {
+  if (!root) return 0;
+  return root.querySelectorAll('.part2-highlight--green, .part2-highlight--yellow, .part2-highlight--red').length;
+}
+
+function getPart2EditorHtml() {
+  const editor = getPart2Editor();
+  return editor ? normalizePart2RichText(editor.innerHTML) : '';
+}
+
+function getPart2EditorPlainText() {
+  const editor = getPart2Editor();
+  return editor ? editor.innerText.replace(/\n{3,}/g, '\n\n').trim() : '';
+}
+
+function setupPart2RichEditor() {
+  document.querySelectorAll('.student-part2-editor').forEach((editor) => {
+    if (!editor.innerHTML.trim()) {
+      editor.innerHTML = '';
+    }
+  });
+}
+
+function applyPart2Highlight(color, questionId = '') {
+  const editor = getPart2Editor(questionId);
+  if (!editor) return;
+  editor.focus();
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    window.showStudentAlert?.('请先选中你要标注的文字。', 'warning');
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) {
+    window.showStudentAlert?.('请在第二部分答题区域内选择文字后再标注。', 'warning');
+    return;
+  }
+
+  const span = document.createElement('span');
+  span.className = `part2-highlight part2-highlight--${color}`;
+  try {
+    range.surroundContents(span);
+  } catch (error) {
+    const content = range.extractContents();
+    span.appendChild(content);
+    range.insertNode(span);
+  }
+  selection.removeAllRanges();
+}
+
+function clearPart2Highlight(questionId = '') {
+  const editor = getPart2Editor(questionId);
+  if (!editor) return;
+  editor.focus();
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    window.showStudentAlert?.('请先选中要去除颜色的文字。', 'warning');
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) {
+    window.showStudentAlert?.('请在第二部分答题区域内选择文字后再去除颜色。', 'warning');
+    return;
+  }
+
+  const fragment = range.extractContents();
+  fragment.querySelectorAll?.('.part2-highlight').forEach((node) => {
+    node.replaceWith(document.createTextNode(node.textContent || ''));
+  });
+  range.insertNode(fragment);
+  selection.removeAllRanges();
+}
+
 // 开始问卷
 async function startSurvey() {
   const studentName = document.getElementById('student-name').value.trim();
   const className = document.getElementById('class-select').value;
   
   if (!studentName) {
-    alert('请输入你的姓名！');
+    window.showStudentAlert?.('请输入你的姓名！', 'warning');
     return;
   }
   
   if (!className) {
-    alert('请选择你的班级！');
+    window.showStudentAlert?.('请选择你的班级！', 'warning');
     return;
   }
   
@@ -283,7 +511,7 @@ async function startSurvey() {
     
     if (!validateResult.success || !validateResult.data || !validateResult.data.valid) {
       const errMsg = validateResult && validateResult.data && validateResult.data.message ? validateResult.data.message : '验证失败，请联系老师';
-      alert(errMsg);
+      window.showStudentAlert?.(errMsg, 'error');
       return;
     }
     
@@ -316,6 +544,7 @@ async function startSurvey() {
       // 切换到问卷页面
       document.getElementById('login-page').classList.add('hidden');
       document.getElementById('survey-page').classList.remove('hidden');
+      await loadTip();
       
       // 恢复已提交的内容
       restoreSubmittedData();
@@ -332,7 +561,7 @@ async function startSurvey() {
     document.getElementById('login-page').classList.remove('hidden');
     document.getElementById('survey-page').classList.add('hidden');
     // 显示具体错误信息方便排查
-    alert(`错误详情：${error.message || '网络错误，请重试！'}`);
+    window.showStudentAlert?.(`错误详情：${error.message || '网络错误，请重试！'}`, 'error');
   } finally {
     showLoading(false);
   }
@@ -415,94 +644,135 @@ function renderQuestions(part, questions) {
       if (qNum === 1) {
         // 第一题是评分题
         html += `
-          <h3>题目一：猜一猜 🤔</h3>
-          <p style="margin-bottom: 20px; color: #666;">${q.question_text}</p>
-          <div class="rating-options" id="prediction-score">
-            ${options.map((opt, i) => `
-              <div class="rating-option" data-score="${i}">
-                <div class="emoji">${['😰', '😟', '😅', '🤔', '😊', '🌟'][i]}</div>
-                <div class="score">${i}分</div>
-                <div class="desc">${opt.split(' - ')[1]}</div>
-              </div>
-            `).join('')}
-          </div>
+          <section class="question-item student-quiz-block student-quiz-block--prediction">
+            <div class="student-quiz-head">
+              <span class="student-quiz-tag">热身关卡</span>
+              <h3>题目一：猜一猜 🤔</h3>
+            </div>
+            <p class="student-quiz-text">${q.question_text}</p>
+            <div class="rating-options" id="prediction-score">
+              ${options.map((opt, i) => `
+                <div class="rating-option" data-score="${i}">
+                  <div class="emoji">${['😰', '😟', '😅', '🤔', '😊', '🌟'][i]}</div>
+                  <div class="score">${i}分</div>
+                  <div class="desc">${opt.split(' - ')[1]}</div>
+                </div>
+              `).join('')}
+            </div>
+          </section>
         `;
       } else {
         // 第二题是多选题
         html += `
-          <h3 style="margin-top: 30px;">题目二：我的计划 📋</h3>
-          <p style="margin-bottom: 20px; color: #666;">${q.question_text}</p>
-          <div class="options" id="learning-methods">
-            ${options.map((opt, i) => `
-              <div class="option">
-                <input type="checkbox" id="method${i}" value="${opt}">
-                <label for="method${i}">${opt}</label>
-              </div>
-            `).join('')}
-            <div class="option">
-              <input type="checkbox" id="method-custom-check">
-              <label for="method-custom-check">其他：</label>
-              <input type="text" id="method-custom" placeholder="请写下你的方法..." style="margin-left: 10px; flex: 1;">
+          <section class="question-item student-quiz-block student-quiz-block--plan">
+            <div class="student-quiz-head">
+              <span class="student-quiz-tag">准备关卡</span>
+              <h3>题目二：我的计划 📋</h3>
             </div>
-          </div>
+            <p class="student-quiz-text">${q.question_text}</p>
+            <div class="options" id="learning-methods">
+              ${options.map((opt, i) => `
+                <div class="option">
+                  <input type="checkbox" id="method${i}" value="${opt}">
+                  <label for="method${i}">${opt}</label>
+                </div>
+              `).join('')}
+              <div class="option option-with-input">
+                <input type="checkbox" id="method-custom-check">
+                <label for="method-custom-check">其他：</label>
+                <input type="text" id="method-custom" placeholder="请写下你的方法...">
+              </div>
+            </div>
+          </section>
         `;
       }
     } else if (part === 2) {
       // 加载答题指引
       loadPart2Guide();
-      currentPart2Question = q;
-      part2Explanation = q.explanation || ''; // 保存解析到全局变量
-      html += `<h3>${q.question_text}</h3>`;
+      if (index === 0) {
+        currentPart2Questions = questions;
+      }
+      html += `
+        <section class="question-item student-quiz-block student-quiz-block--thinking">
+          <div class="student-quiz-head">
+            <span class="student-quiz-tag">思考关卡</span>
+            <h3>${q.question_text}</h3>
+          </div>
+      `;
       if (q.question_type === 'text') {
+        const annotationEnabled = q.annotation_enabled !== false;
+        part2Explanation = q.explanation || '';
         html += `
-          <p style="margin-bottom: 20px; color: #666;">请写下你的思考，越详细越好哦！</p>
+          <p class="student-quiz-text">${annotationEnabled ? '请写下你的思考，并按要求用颜色标注重点、疑惑和错误观点。' : '请写下你的思考，完整表达自己的想法。'}</p>
+        `;
+        if (annotationEnabled) {
+          html += `
+          <div class="student-part2-guide">
+            <div class="student-part2-toolbar">
+              <button type="button" class="btn student-mark-btn student-mark-btn--green" onclick="applyPart2Highlight('green', ${q.id})">绿色：关键事实或观点</button>
+              <button type="button" class="btn student-mark-btn student-mark-btn--yellow" onclick="applyPart2Highlight('yellow', ${q.id})">黄色：完全看不懂或不清楚的地方</button>
+              <button type="button" class="btn student-mark-btn student-mark-btn--red" onclick="applyPart2Highlight('red', ${q.id})">红色：明显错误或自己不同意的内容</button>
+              <button type="button" class="btn student-mark-btn student-mark-btn--clear" onclick="clearPart2Highlight(${q.id})">去除颜色</button>
+            </div>
+          </div>
+          `;
+        }
+        html += `
           <div class="input-group">
-            <textarea id="part2-answer" rows="8" placeholder="请在这里写下你的答案..."></textarea>
+            <div id="part2-answer-editor-${q.id}" class="student-part2-editor" contenteditable="true" data-placeholder="${annotationEnabled ? '请在这里写下你的答案，并至少给一处文字加上颜色标注...' : '请在这里写下你的答案...'}"></div>
           </div>
         `;
       } else if (q.question_type === 'multi') {
         html += `
-          <p style="margin-bottom: 20px; color: #666;">请选择所有符合你的答案。</p>
-          <div class="options" id="part2-answer-options">
+          <p class="student-quiz-text">请选择所有符合你的答案。</p>
+          <div class="options" id="part2-answer-options-${q.id}">
             ${options.map((opt, i) => `
               <div class="option">
-                <input type="checkbox" id="part2-option-${i}" value="${opt}">
-                <label for="part2-option-${i}">${opt}</label>
+                <input type="checkbox" id="part2-option-${q.id}-${i}" value="${opt}">
+                <label for="part2-option-${q.id}-${i}">${opt}</label>
               </div>
             `).join('')}
           </div>
         `;
       } else {
         html += `
-          <p style="margin-bottom: 20px; color: #666;">请选择一个最符合的答案。</p>
-          <div class="options" id="part2-answer-options">
+          <p class="student-quiz-text">请选择一个最符合的答案。</p>
+          <div class="options" id="part2-answer-options-${q.id}">
             ${options.map((opt, i) => `
               <div class="option">
-                <input type="radio" id="part2-option-${i}" name="part2-answer" value="${opt}">
-                <label for="part2-option-${i}">${opt}</label>
+                <input type="radio" id="part2-option-${q.id}-${i}" name="part2-answer-${q.id}" value="${opt}">
+                <label for="part2-option-${q.id}-${i}">${opt}</label>
               </div>
             `).join('')}
           </div>
         `;
       }
-      html += `
-        <div id="part2-results" class="hidden" style="margin-top: 30px; padding: 20px; background: #f0f9ff; border-radius: 8px;">
-          <h4 style="color: #1890ff; margin-bottom: 10px;">💡 参考解析</h4>
-          <p id="part2-explanation-content" style="line-height: 1.6; margin: 0;"></p>
-        </div>
-      `;
+      if (q.question_type === 'text') {
+        html += `
+          <div id="part2-results" class="hidden student-inline-result">
+            <h4>💡 参考解析</h4>
+            <p id="part2-explanation-content" style="line-height: 1.6; margin: 0;"></p>
+          </div>
+        `;
+      }
+      html += `</section>`;
     } else if (part === 3) {
       // 第三部分：选择题/判断题
       html += `
-        <h3>${qNum}. ${q.question_text}</h3>
-        <div class="options" id="q${qNum}">
-          ${options.map((opt, i) => `
-            <div class="option">
-              <input type="radio" id="q${qNum}-${i}" name="q${qNum}" value="${opt.split('.')[0]}">
-              <label for="q${qNum}-${i}">${opt}</label>
-            </div>
-          `).join('')}
-        </div>
+        <section class="question-item student-quiz-block student-quiz-block--quiz">
+          <div class="student-quiz-head">
+            <span class="student-quiz-tag">答题关卡 ${qNum}</span>
+            <h3>${qNum}. ${q.question_text}</h3>
+          </div>
+          <div class="options" id="q${qNum}">
+            ${options.map((opt, i) => `
+              <div class="option">
+                <input type="radio" id="q${qNum}-${i}" name="q${qNum}" value="${opt.split('.')[0]}">
+                <label for="q${qNum}-${i}">${opt}</label>
+              </div>
+            `).join('')}
+          </div>
+        </section>
       `;
     }
   });
@@ -522,6 +792,8 @@ function renderQuestions(part, questions) {
   
   // 绑定所有选项点击事件（单选/多选通用）
   bindOptionClickEvents();
+  setupPart2TextareaAutosize();
+  setupPart2RichEditor();
 }
 
 // 恢复已提交的数据
@@ -564,29 +836,33 @@ function restoreSubmittedData() {
   
   // 恢复第二部分
   if (surveyData.part2_answer) {
-    const parsedPart2 = parseStoredPart2Answer(surveyData.part2_answer);
-    if (currentPart2Question && currentPart2Question.question_type === 'text') {
-      const part2Input = document.getElementById('part2-answer');
-      if (part2Input) {
-        part2Input.value = parsedPart2?.value || surveyData.part2_answer;
-      }
-    } else if (currentPart2Question && currentPart2Question.question_type === 'multi') {
-      const values = parsedPart2?.values || [];
-      values.forEach((value) => {
-        const input = Array.from(document.querySelectorAll('#part2-answer-options input')).find((node) => node.value === value);
+    const responses = getStoredPart2Responses(surveyData.part2_answer);
+    currentPart2Questions.forEach((question, index) => {
+      const response = responses.find((item) => item.questionId === question.id) || responses[index];
+      if (!response) return;
+      if (question.question_type === 'text') {
+        const editor = getPart2Editor(question.id);
+        if (editor) {
+          editor.innerHTML = response.value || response.label || '';
+        }
+      } else if (question.question_type === 'multi') {
+        const values = response.values || [];
+        values.forEach((value) => {
+          const input = Array.from(document.querySelectorAll(`#part2-answer-options-${question.id} input`)).find((node) => node.value === value);
+          if (input) {
+            input.checked = true;
+            input.closest('.option')?.classList.add('selected');
+          }
+        });
+      } else {
+        const value = response.value || response.label || '';
+        const input = Array.from(document.querySelectorAll(`#part2-answer-options-${question.id} input`)).find((node) => node.value === value);
         if (input) {
           input.checked = true;
           input.closest('.option')?.classList.add('selected');
         }
-      });
-    } else {
-      const value = parsedPart2?.value || surveyData.part2_answer;
-      const input = Array.from(document.querySelectorAll('#part2-answer-options input')).find((node) => node.value === value);
-      if (input) {
-        input.checked = true;
-        input.closest('.option')?.classList.add('selected');
       }
-    }
+    });
     // 显示解析
     if (part2Explanation) {
       renderRichExplanation(document.getElementById('part2-explanation-content'), part2Explanation);
@@ -616,6 +892,8 @@ function restoreSubmittedData() {
     lockPart(4);
     document.getElementById('completed-page').classList.remove('hidden');
   }
+
+  updatePart3Progress();
 }
 
 // 构建历史分数与预测对比内容
@@ -639,9 +917,9 @@ function buildHistoryScoresHtml() {
   let html = '';
   allScores.forEach(item => {
     html += `
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #eaecef;">
-        <div style="font-weight: 500;">${item.courseName}</div>
-        <div style="text-align: right;">
+      <div class="student-history-score-row">
+        <div class="student-history-score-name">${item.courseName}</div>
+        <div class="student-history-score-value">
           预测：<strong>${item.predictedScore}分</strong> / 实际：<strong>${item.actualScore}分</strong>
         </div>
       </div>
@@ -662,6 +940,8 @@ function lockPart(part) {
 // 更新UI
 function updateUI() {
   // 隐藏所有部分
+  const prepStage = document.getElementById('prep-stage');
+  if (prepStage) prepStage.classList.add('hidden');
   for (let i = 1; i <= 4; i++) {
     const partEl = document.getElementById(`part${i}`);
     if (partEl) partEl.classList.add('hidden');
@@ -710,6 +990,11 @@ function updateUI() {
     return;
   }
 
+  if (!part1Submitted && Number(currentStage) === 0) {
+    prepStage?.classList.remove('hidden');
+    return;
+  }
+
   // 显示当前学生需要填写的部分：如果教师开启的阶段 >= 学生当前要完成的阶段，就显示该阶段让学生填写
   if (currentStudentStage <= currentStage) {
     if (currentStudentStage === 1 && !part1Submitted) {
@@ -718,6 +1003,7 @@ function updateUI() {
       document.getElementById('part2').classList.remove('hidden');
     } else if (currentStudentStage === 3 && !part3Submitted) {
       document.getElementById('part3').classList.remove('hidden');
+      updatePart3Progress();
     } else if (currentStudentStage === 4 && !part4Submitted) {
       // 生成第四部分题目
       generatePart4Content();
@@ -778,8 +1064,8 @@ function generatePart4Content() {
   }
   
   let html = `
-    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 12px;">
-      <h3 style="margin: 0 0 10px 0;">📊 历史与预测分数对比</h3>
+    <div class="student-history-score-card">
+      <h3>📊 历史与预测分数对比</h3>
       ${buildHistoryScoresHtml()}
     </div>
     <h3>1. 我的学习成果 📊</h3>
@@ -963,7 +1249,7 @@ function generatePart4Content() {
 // 提交第一部分
 async function submitPart1() {
   if (predictionScore === null) {
-    alert('请先给自己打分！');
+    window.showStudentAlert?.('请先给自己打分！', 'warning');
     return;
   }
   
@@ -979,7 +1265,7 @@ async function submitPart1() {
   const customMethod = customCheck.checked ? document.getElementById('method-custom').value.trim() : null;
   
   if (learningMethods.length === 0 && !customMethod) {
-    alert('请至少选择一种学习方法！');
+    window.showStudentAlert?.('请至少选择一种学习方法！', 'warning');
     return;
   }
   
@@ -1018,13 +1304,13 @@ async function submitPart1() {
       // 更新UI
       updateUI();
       
-      alert('第一部分提交成功！🎉');
+      window.showStudentAlert?.('第一部分提交成功！🎉', 'success');
     } else {
-      alert(result.error || '提交失败，请重试');
+      window.showStudentAlert?.(result.error || '提交失败，请重试', 'error');
     }
   } catch (error) {
     console.error('提交失败:', error);
-    alert(`提交失败: ${error.message || '请重试'}`);
+    window.showStudentAlert?.(`提交失败: ${error.message || '请重试'}`, 'error');
   } finally {
     showLoading(false);
   }
@@ -1032,27 +1318,35 @@ async function submitPart1() {
 
 // 提交第二部分
 async function submitPart2() {
-  let answer = '';
-  let answers = [];
-  const questionType = currentPart2Question?.question_type || 'text';
-
-  if (questionType === 'text') {
-    answer = document.getElementById('part2-answer').value.trim();
-    if (!answer) {
-      alert('请填写你的答案！');
-      return;
-    }
-  } else if (questionType === 'multi') {
-    answers = Array.from(document.querySelectorAll('#part2-answer-options input[type="checkbox"]:checked')).map((input) => input.value);
-    if (answers.length === 0) {
-      alert('请至少选择一个答案！');
-      return;
-    }
-  } else {
-    answer = document.querySelector('#part2-answer-options input[type="radio"]:checked')?.value || '';
-    if (!answer) {
-      alert('请选择一个答案！');
-      return;
+  const responses = [];
+  for (const question of currentPart2Questions) {
+    if (question.question_type === 'text') {
+      const editor = getPart2Editor(question.id);
+      const answer = editor ? normalizePart2RichText(editor.innerHTML) : '';
+      const plainText = editor ? editor.innerText.replace(/\n{3,}/g, '\n\n').trim() : '';
+      if (!plainText) {
+        window.showStudentAlert?.('请填写第二部分的思考题答案！', 'warning');
+        return;
+      }
+      if (question.annotation_enabled !== false && countPart2Highlights(editor) === 0) {
+        window.showStudentAlert?.('请至少对一处内容进行颜色标注后再提交。', 'warning');
+        return;
+      }
+      responses.push({ questionId: question.id, answer, answers: [] });
+    } else if (question.question_type === 'multi') {
+      const answers = Array.from(document.querySelectorAll(`#part2-answer-options-${question.id} input[type="checkbox"]:checked`)).map((input) => input.value);
+      if (answers.length === 0) {
+        window.showStudentAlert?.('请完成第二部分的选择题后再提交！', 'warning');
+        return;
+      }
+      responses.push({ questionId: question.id, answer: '', answers });
+    } else {
+      const answer = document.querySelector(`#part2-answer-options-${question.id} input[type="radio"]:checked`)?.value || '';
+      if (!answer) {
+        window.showStudentAlert?.('请先选择你对人工智能生成内容的理解程度！', 'warning');
+        return;
+      }
+      responses.push({ questionId: question.id, answer, answers: [] });
     }
   }
   
@@ -1064,8 +1358,7 @@ async function submitPart2() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         courseId: currentCourseId,
-        answer,
-        answers
+        responses
       })
     });
     
@@ -1078,7 +1371,7 @@ async function submitPart2() {
     if (result.success) {
       // 更新本地数据
       if (!surveyData) surveyData = {};
-      surveyData.part2_answer = result.data.answer || answer;
+      surveyData.part2_answer = result.data.answer || '';
       
       // 显示解析
       if (result.data.explanation) {
@@ -1095,13 +1388,13 @@ async function submitPart2() {
       // 更新UI
       updateUI();
       
-      alert('第二部分提交成功！🎉');
+      window.showStudentAlert?.('第二部分提交成功！🎉', 'success');
     } else {
-      alert(result.error || '提交失败，请重试');
+      window.showStudentAlert?.(result.error || '提交失败，请重试', 'error');
     }
   } catch (error) {
     console.error('提交失败:', error);
-    alert(`提交失败: ${error.message || '请重试'}`);
+    window.showStudentAlert?.(`提交失败: ${error.message || '请重试'}`, 'error');
   } finally {
     showLoading(false);
   }
@@ -1125,7 +1418,11 @@ async function submitPart3() {
   }
   
   if (!allAnswered) {
-    alert('请回答所有问题！');
+    const unanswered = updatePart3Progress();
+    const hint = unanswered.length
+      ? `还差第 ${unanswered.join('、')} 题没做`
+      : '请回答所有问题！';
+    window.showStudentAlert?.(hint, 'warning');
     return;
   }
   
@@ -1173,8 +1470,8 @@ async function submitPart3() {
                 ${res.isCorrect ? '✅ 正确' : '❌ 错误'}
               </span>
             </h4>
-            <p>你的答案：<strong>${res.studentAnswer}</strong></p>
-            <p>正确答案：<strong>${res.correctAnswer}</strong></p>
+            <p>你的答案：<strong class="${res.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${res.studentAnswer}</strong></p>
+            <p>正确答案：<strong class="student-answer-text--correct">${res.correctAnswer}</strong></p>
             <p class="explanation"><span class="label">解析：</span><span class="content">${res.explanation || ''}</span></p>
           </div>
         `;
@@ -1194,13 +1491,13 @@ async function submitPart3() {
       // 更新UI
       updateUI();
       
-      alert(`第三部分提交成功！你得了 ${part3Score}/5 分！🎉`);
+      window.showStudentAlert?.(`第三部分提交成功！你得了 ${part3Score}/5 分！🎉`, 'success');
     } else {
-      alert(result.error || '提交失败，请重试');
+      window.showStudentAlert?.(result.error || '提交失败，请重试', 'error');
     }
   } catch (error) {
     console.error('提交失败:', error);
-    alert(`提交失败: ${error.message || '请重试'}`);
+    window.showStudentAlert?.(`提交失败: ${error.message || '请重试'}`, 'error');
   } finally {
     showLoading(false);
   }
@@ -1220,7 +1517,7 @@ async function submitPart4() {
   const q2Custom = q2CustomCheck.checked ? document.getElementById('p4-q2-custom').value.trim() : null;
   
   if (q2Answers.length === 0 && !q2Custom) {
-    alert('请回答第二题！');
+    window.showStudentAlert?.('请回答第二题！', 'warning');
     return;
   }
   
@@ -1236,7 +1533,7 @@ async function submitPart4() {
   const q3Custom = q3CustomCheck.checked ? document.getElementById('p4-q3-custom').value.trim() : null;
   
   if (q3Answers.length === 0 && !q3Custom) {
-    alert('请回答第三题！');
+    window.showStudentAlert?.('请回答第三题！', 'warning');
     return;
   }
   
@@ -1294,14 +1591,12 @@ async function submitPart4() {
       
       // 显示完成页面
       document.getElementById('completed-page').classList.remove('hidden');
-      
-      alert('太棒了！你完成了所有问卷！🎉');
     } else {
-      alert(result.error || '提交失败，请重试');
+      window.showStudentAlert?.(result.error || '提交失败，请重试', 'error');
     }
   } catch (error) {
     console.error('提交失败:', error);
-    alert(`提交失败: ${error.message || '请重试'}`);
+    window.showStudentAlert?.(`提交失败: ${error.message || '请重试'}`, 'error');
   } finally {
     showLoading(false);
   }
@@ -1314,9 +1609,13 @@ async function loadTip() {
   try {
     const res = await fetch(`${API_BASE}/student/tip?className=${encodeURIComponent(currentClassName)}`);
     const tipContent = document.getElementById('tipContent');
+    const prepTipContent = document.getElementById('prepTipContent');
     if (!res.ok) {
       if (tipContent) {
         tipContent.innerHTML = '';
+      }
+      if (prepTipContent) {
+        prepTipContent.textContent = '课堂提示语暂时不可用，请稍等老师开启课堂。';
       }
       applyTipLayout(false);
       return;
@@ -1328,10 +1627,16 @@ async function loadTip() {
       if (tipContent) {
         tipContent.innerHTML = content;
       }
-      applyTipLayout(true);
+      if (prepTipContent) {
+        prepTipContent.innerHTML = content;
+      }
+      applyTipLayout(shouldShowTopTipBar());
     } else {
       if (tipContent) {
         tipContent.innerHTML = '';
+      }
+      if (prepTipContent) {
+        prepTipContent.textContent = '老师还没有填写课堂提示语，请稍等。';
       }
       applyTipLayout(false);
     }
@@ -1340,6 +1645,10 @@ async function loadTip() {
     const tipContent = document.getElementById('tipContent');
     if (tipContent) {
       tipContent.innerHTML = '';
+    }
+    const prepTipContent = document.getElementById('prepTipContent');
+    if (prepTipContent) {
+      prepTipContent.textContent = '课堂提示语加载失败，请稍后再试。';
     }
     applyTipLayout(false);
   }

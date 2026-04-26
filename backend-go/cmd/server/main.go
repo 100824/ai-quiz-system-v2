@@ -24,6 +24,8 @@ type app struct {
 	tips *tipStore
 }
 
+const part2UnderstandingQuestionText = "你对人工智能生成内容的理解程度是？"
+
 type tipStore struct {
 	mu   sync.RWMutex
 	data map[string]tipPayload
@@ -87,17 +89,19 @@ type course struct {
 }
 
 type question struct {
-	ID            int     `json:"id"`
-	CourseID      int     `json:"course_id"`
-	Part          int     `json:"part"`
-	QuestionType  string  `json:"question_type"`
-	QuestionText  string  `json:"question_text"`
-	Options       *string `json:"options"`
-	CorrectAnswer *string `json:"correct_answer"`
-	Explanation   *string `json:"explanation"`
-	SortOrder     int     `json:"sort_order"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	ID                int     `json:"id"`
+	CourseID          int     `json:"course_id"`
+	Part              int     `json:"part"`
+	QuestionType      string  `json:"question_type"`
+	QuestionText      string  `json:"question_text"`
+	Options           *string `json:"options"`
+	CorrectAnswer     *string `json:"correct_answer"`
+	Explanation       *string `json:"explanation"`
+	Enabled           bool    `json:"enabled"`
+	AnnotationEnabled bool    `json:"annotation_enabled"`
+	SortOrder         int     `json:"sort_order"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
 }
 
 type studentSurvey struct {
@@ -128,11 +132,25 @@ type part1Answers struct {
 }
 
 type part2AnswerPayload struct {
-	QuestionType string   `json:"questionType"`
-	Value        string   `json:"value"`
-	Values       []string `json:"values,omitempty"`
-	Label        string   `json:"label,omitempty"`
-	Labels       []string `json:"labels,omitempty"`
+	QuestionType    string              `json:"questionType"`
+	Value           string              `json:"value"`
+	Values          []string            `json:"values,omitempty"`
+	Label           string              `json:"label,omitempty"`
+	Labels          []string            `json:"labels,omitempty"`
+	AnnotationCount int                 `json:"annotationCount,omitempty"`
+	Version         int                 `json:"version,omitempty"`
+	Responses       []part2ResponseItem `json:"responses,omitempty"`
+}
+
+type part2ResponseItem struct {
+	QuestionID      int      `json:"questionId,omitempty"`
+	QuestionText    string   `json:"questionText,omitempty"`
+	QuestionType    string   `json:"questionType"`
+	Value           string   `json:"value,omitempty"`
+	Values          []string `json:"values,omitempty"`
+	Label           string   `json:"label,omitempty"`
+	Labels          []string `json:"labels,omitempty"`
+	AnnotationCount int      `json:"annotationCount,omitempty"`
 }
 
 type historyScore struct {
@@ -183,8 +201,9 @@ type statsPayload struct {
 		LearningMethodsDistribution map[string]int `json:"learningMethodsDistribution"`
 	} `json:"part1Stats"`
 	Part2Stats struct {
-		FilledCount int `json:"filledCount"`
-		TotalCount  int `json:"totalCount"`
+		FilledCount               int            `json:"filledCount"`
+		TotalCount                int            `json:"totalCount"`
+		UnderstandingDistribution map[string]int `json:"understandingDistribution"`
 	} `json:"part2Stats"`
 	Part3Stats struct {
 		ScoreDistribution   map[string]int `json:"scoreDistribution"`
@@ -235,6 +254,7 @@ func main() {
 	mux.HandleFunc("POST /api/teacher/tip", a.handleTeacherTip)
 	mux.HandleFunc("GET /api/teacher/questions/{courseId}/{part}", a.handleTeacherQuestions)
 	mux.HandleFunc("POST /api/teacher/question/{id}", a.handleUpdateQuestion)
+	mux.HandleFunc("POST /api/teacher/question/{id}/enabled", a.handleSetQuestionEnabled)
 	mux.HandleFunc("GET /api/teacher/part2-guide/{courseId}", a.handleGetPart2Guide)
 	mux.HandleFunc("POST /api/teacher/part2-guide/{courseId}", a.handleSetPart2Guide)
 	mux.HandleFunc("GET /api/teacher/part-settings/{courseId}", a.handleGetPartSettings)
@@ -326,6 +346,8 @@ func (a *app) initDB() error {
 			options TEXT,
 			correct_answer TEXT,
 			explanation TEXT,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			annotation_enabled INTEGER NOT NULL DEFAULT 1,
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -367,6 +389,12 @@ func (a *app) initDB() error {
 	if _, err := a.db.Exec(`ALTER TABLE courses ADD COLUMN part2_guide TEXT`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return err
 	}
+	if _, err := a.db.Exec(`ALTER TABLE questions ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	if _, err := a.db.Exec(`ALTER TABLE questions ADD COLUMN annotation_enabled INTEGER NOT NULL DEFAULT 1`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
 
 	var courseCount int
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM courses`).Scan(&courseCount); err != nil {
@@ -388,7 +416,10 @@ func (a *app) initDB() error {
 		return err
 	}
 
-	return a.initDefaultQuestions()
+	if err := a.initDefaultQuestions(); err != nil {
+		return err
+	}
+	return a.ensurePart2UnderstandingQuestion()
 }
 
 func (a *app) initDefaultQuestions() error {
@@ -435,6 +466,53 @@ func (a *app) initDefaultQuestions() error {
 		}
 	}
 	return nil
+}
+
+func (a *app) ensurePart2UnderstandingQuestion() error {
+	rows, err := a.db.Query(`SELECT id FROM courses ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	options := mustJSON([]string{"A. 完全理解", "B. 理解大部分", "C. 理解小部分", "D. 完全不理解"})
+	for rows.Next() {
+		var courseID int
+		if err := rows.Scan(&courseID); err != nil {
+			return err
+		}
+
+		var existingID int
+		err := a.db.QueryRow(`
+			SELECT id
+			FROM questions
+			WHERE course_id = ? AND part = 2 AND (sort_order = 0 OR question_text = ?)
+			LIMIT 1
+		`, courseID, part2UnderstandingQuestionText).Scan(&existingID)
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, err := a.db.Exec(`
+				INSERT INTO questions (course_id, part, question_type, question_text, options, correct_answer, explanation, enabled, sort_order)
+				VALUES (?, 2, 'single', ?, ?, NULL, NULL, 1, 0)
+			`, courseID, part2UnderstandingQuestionText, options); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := a.db.Exec(`
+			UPDATE questions
+			SET question_type = 'single',
+			    question_text = ?,
+			    options = ?,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, part2UnderstandingQuestionText, options, existingID); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 func defaultQuestions(courseID int) []question {
@@ -570,28 +648,40 @@ func (a *app) handleTeacherStage(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleSetTeacherStage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CourseID  flexInt `json:"courseId"`
-		Stage     flexInt `json:"stage"`
-		ClassName string  `json:"className"`
+		CourseID  json.RawMessage `json:"courseId"`
+		Stage     json.RawMessage `json:"stage"`
+		ClassName string          `json:"className"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
 		return
 	}
-	if int(body.CourseID) <= 0 || int(body.Stage) <= 0 {
+	courseID, err := parseRawFlexibleInt(body.CourseID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: "courseId 无效"})
+		return
+	}
+	stage, err := parseRawFlexibleInt(body.Stage)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: "stage 无效"})
+		return
+	}
+	if courseID <= 0 || stage < 0 {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: "courseId 或 stage 无效"})
 		return
 	}
-	enabled, err := a.isPartEnabled(int(body.CourseID), int(body.Stage))
-	if err != nil {
-		writeError(w, err)
-		return
+	if stage > 0 {
+		enabled, err := a.isPartEnabled(courseID, stage)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if !enabled {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: fmt.Sprintf("第%d部分当前已关闭，无法切换", stage)})
+			return
+		}
 	}
-	if !enabled {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: fmt.Sprintf("第%d部分当前已关闭，无法切换", int(body.Stage))})
-		return
-	}
-	if err := a.setCurrentStage(int(body.CourseID), int(body.Stage), body.ClassName); err != nil {
+	if err := a.setCurrentStage(courseID, stage, body.ClassName); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -599,7 +689,11 @@ func (a *app) handleSetTeacherStage(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(body.ClassName) != "" {
 		target = body.ClassName
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Message: fmt.Sprintf("已将%s切换到第%d部分", target, int(body.Stage))})
+	stageLabel := fmt.Sprintf("第%d部分", stage)
+	if stage == 0 {
+		stageLabel = "准备环节"
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Message: fmt.Sprintf("已将%s切换到%s", target, stageLabel)})
 }
 
 func (a *app) handleGetPartSettings(w http.ResponseWriter, r *http.Request) {
@@ -701,21 +795,53 @@ func (a *app) handleUpdateQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		QuestionType  string  `json:"questionType"`
-		QuestionText  string  `json:"questionText"`
-		Options       *string `json:"options"`
-		CorrectAnswer *string `json:"correctAnswer"`
-		Explanation   *string `json:"explanation"`
+		QuestionType      string  `json:"questionType"`
+		QuestionText      string  `json:"questionText"`
+		Options           *string `json:"options"`
+		CorrectAnswer     *string `json:"correctAnswer"`
+		Explanation       *string `json:"explanation"`
+		AnnotationEnabled *bool   `json:"annotationEnabled"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
 		return
 	}
-	if err := a.updateQuestion(id, body.QuestionType, body.QuestionText, body.Options, body.CorrectAnswer, body.Explanation); err != nil {
+	annotationEnabled := true
+	var existingAnnotationEnabled int
+	if err := a.db.QueryRow(`SELECT annotation_enabled FROM questions WHERE id = ?`, id).Scan(&existingAnnotationEnabled); err == nil {
+		annotationEnabled = existingAnnotationEnabled == 1
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, err)
+		return
+	}
+	if body.AnnotationEnabled != nil {
+		annotationEnabled = *body.AnnotationEnabled
+	}
+	if err := a.updateQuestion(id, body.QuestionType, body.QuestionText, body.Options, body.CorrectAnswer, body.Explanation, annotationEnabled); err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Message: "更新成功"})
+}
+
+func (a *app) handleSetQuestionEnabled(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: "question id 无效"})
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
+		return
+	}
+	if err := a.setQuestionEnabled(id, body.Enabled); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Message: "题目启用状态更新成功"})
 }
 
 func (a *app) handleGetPart2Guide(w http.ResponseWriter, r *http.Request) {
@@ -785,7 +911,7 @@ func (a *app) handleExportStats(w http.ResponseWriter, r *http.Request) {
 	file.SetSheetName("Sheet1", sheet)
 	headers := []string{
 		"班级", "姓名", "完成状态", "第一部分-预测得分", "第一部分-学习方法", "第一部分-自定义学习方法",
-		"第二部分-开放题答案", "第三部分-第1题答案", "第三部分-第2题答案", "第三部分-第3题答案",
+		"第二部分-理解程度", "第二部分-开放题答案", "第三部分-第1题答案", "第三部分-第2题答案", "第三部分-第3题答案",
 		"第三部分-第4题答案", "第三部分-第5题答案", "第三部分-总得分", "第四部分-实际得分",
 		"第四部分-预测得分", "第四部分-第2题答案", "第四部分-第2题自定义内容", "第四部分-第3题答案",
 		"第四部分-第3题自定义内容", "最后提交时间",
@@ -936,7 +1062,7 @@ func (a *app) handleStudentQuestions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{"questions": questions}})
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{"questions": filterEnabledQuestions(questions)}})
 }
 
 func (a *app) handleStudentPart1(w http.ResponseWriter, r *http.Request) {
@@ -966,9 +1092,14 @@ func (a *app) handleStudentPart1(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleStudentPart2(w http.ResponseWriter, r *http.Request) {
 	studentID := r.PathValue("studentId")
 	var body struct {
-		CourseID *int     `json:"courseId"`
-		Answer   string   `json:"answer"`
-		Answers  []string `json:"answers"`
+		CourseID  *int     `json:"courseId"`
+		Answer    string   `json:"answer"`
+		Answers   []string `json:"answers"`
+		Responses []struct {
+			QuestionID int      `json:"questionId"`
+			Answer     string   `json:"answer"`
+			Answers    []string `json:"answers"`
+		} `json:"responses"`
 	}
 	type part2Response struct {
 		Answer       string `json:"answer"`
@@ -994,8 +1125,12 @@ func (a *app) handleStudentPart2(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: "第二部分题目不存在"})
 		return
 	}
-	question := questions[0]
-	storedAnswer, displayValue, err := buildPart2StoredAnswer(question, strings.TrimSpace(body.Answer), body.Answers)
+	activeQuestions := filterEnabledQuestions(questions)
+	if len(activeQuestions) == 0 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: "第二部分题目未启用"})
+		return
+	}
+	storedAnswer, displayValue, explanation, err := buildPart2StoredAnswers(activeQuestions, body.Answer, body.Answers, body.Responses)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Success: false, Error: err.Error()})
 		return
@@ -1004,14 +1139,10 @@ func (a *app) handleStudentPart2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	explanation := ""
-	if question.Explanation != nil {
-		explanation = *question.Explanation
-	}
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Message: "第二部分提交成功", Data: part2Response{
 		Answer:       storedAnswer,
 		DisplayValue: displayValue,
-		QuestionType: question.QuestionType,
+		QuestionType: "mixed",
 		Explanation:  explanation,
 	}})
 }
@@ -1342,7 +1473,7 @@ func (a *app) getCurrentStage(courseID int, className string) (int, error) {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return 0, err
 		}
-		return 1, nil
+		return 0, nil
 	}
 	var stage sql.NullInt64
 	err := a.db.QueryRow(`SELECT MAX(current_stage) FROM course_stages WHERE course_id = ?`, courseID).Scan(&stage)
@@ -1350,7 +1481,7 @@ func (a *app) getCurrentStage(courseID int, className string) (int, error) {
 		return 0, err
 	}
 	if !stage.Valid {
-		return 1, nil
+		return 0, nil
 	}
 	return int(stage.Int64), nil
 }
@@ -1454,7 +1585,7 @@ func (a *app) updatePartSettings(courseID int, settings []partSetting) error {
 		for _, setting := range settings {
 			enabledMap[setting.Part] = setting.Enabled
 		}
-		if !enabledMap[int(currentStage.Int64)] {
+		if currentStage.Int64 > 0 && !enabledMap[int(currentStage.Int64)] {
 			nextStage := firstEnabledPart(enabledMap)
 			if nextStage == 0 {
 				nextStage = 1
@@ -1488,10 +1619,10 @@ func (a *app) setClassBoundCourse(className string, courseID int) error {
 
 func (a *app) getQuestionsByPart(courseID, part int) ([]question, error) {
 	rows, err := a.db.Query(`
-		SELECT id, course_id, part, question_type, question_text, options, correct_answer, explanation, sort_order, created_at, updated_at
+		SELECT id, course_id, part, question_type, question_text, options, correct_answer, explanation, enabled, annotation_enabled, sort_order, created_at, updated_at
 		FROM questions
 		WHERE course_id = ? AND part = ?
-		ORDER BY sort_order
+		ORDER BY sort_order, id
 	`, courseID, part)
 	if err != nil {
 		return nil, err
@@ -1500,8 +1631,9 @@ func (a *app) getQuestionsByPart(courseID, part int) ([]question, error) {
 	var questions []question
 	for rows.Next() {
 		var q question
+		var enabledInt, annotationEnabledInt int
 		var options, correctAnswer, explanation sql.NullString
-		if err := rows.Scan(&q.ID, &q.CourseID, &q.Part, &q.QuestionType, &q.QuestionText, &options, &correctAnswer, &explanation, &q.SortOrder, &q.CreatedAt, &q.UpdatedAt); err != nil {
+		if err := rows.Scan(&q.ID, &q.CourseID, &q.Part, &q.QuestionType, &q.QuestionText, &options, &correctAnswer, &explanation, &enabledInt, &annotationEnabledInt, &q.SortOrder, &q.CreatedAt, &q.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if options.Valid {
@@ -1513,17 +1645,42 @@ func (a *app) getQuestionsByPart(courseID, part int) ([]question, error) {
 		if explanation.Valid {
 			q.Explanation = ptr(explanation.String)
 		}
+		q.Enabled = enabledInt == 1
+		q.AnnotationEnabled = annotationEnabledInt == 1
 		questions = append(questions, q)
 	}
 	return questions, rows.Err()
 }
 
-func (a *app) updateQuestion(id int, questionType, questionText string, options, correctAnswer, explanation *string) error {
+func filterEnabledQuestions(items []question) []question {
+	filtered := make([]question, 0, len(items))
+	for _, q := range items {
+		if q.Enabled {
+			filtered = append(filtered, q)
+		}
+	}
+	return filtered
+}
+
+func (a *app) updateQuestion(id int, questionType, questionText string, options, correctAnswer, explanation *string, annotationEnabled bool) error {
+	annotationEnabledInt := 0
+	if annotationEnabled {
+		annotationEnabledInt = 1
+	}
 	_, err := a.db.Exec(`
 		UPDATE questions
-		SET question_type = ?, question_text = ?, options = ?, correct_answer = ?, explanation = ?, updated_at = CURRENT_TIMESTAMP
+		SET question_type = ?, question_text = ?, options = ?, correct_answer = ?, explanation = ?, annotation_enabled = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, questionType, questionText, emptyToNil(options), emptyToNil(correctAnswer), emptyToNil(explanation), id)
+	`, questionType, questionText, emptyToNil(options), emptyToNil(correctAnswer), emptyToNil(explanation), annotationEnabledInt, id)
+	return err
+}
+
+func (a *app) setQuestionEnabled(id int, enabled bool) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	_, err := a.db.Exec(`UPDATE questions SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, enabledInt, id)
 	return err
 }
 
@@ -1840,6 +1997,7 @@ func (a *app) buildStats(courseID int, className string) (statsPayload, error) {
 	stats.Part1Stats.PredictionScoreDistribution = map[string]int{}
 	stats.Part1Stats.LearningMethodsDistribution = map[string]int{}
 	stats.Part2Stats.TotalCount = len(students)
+	stats.Part2Stats.UnderstandingDistribution = map[string]int{}
 	stats.Part3Stats.ScoreDistribution = map[string]int{"0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
 
 	part3Questions, err := a.getQuestionsByPart(courseID, 3)
@@ -1869,6 +2027,14 @@ func (a *app) buildStats(courseID int, className string) (statsPayload, error) {
 		}
 		if s.Part2 != nil && strings.TrimSpace(*s.Part2) != "" {
 			stats.Part2Stats.FilledCount++
+			for _, item := range getPart2ResponseItems(*s.Part2) {
+				if strings.TrimSpace(item.QuestionText) == part2UnderstandingQuestionText {
+					label := formatPart2ResponseLabel(item)
+					if strings.TrimSpace(label) != "" {
+						stats.Part2Stats.UnderstandingDistribution[label]++
+					}
+				}
+			}
 		}
 		if s.Part3Score != nil {
 			score := clamp(*s.Part3Score, 0, 5)
@@ -1918,6 +2084,8 @@ func buildExportRow(s studentSurvey) []string {
 	predictionScore := "未提交"
 	learningMethods := "未提交"
 	customLearningMethod := "无"
+	part2Understanding := "未提交"
+	part2OpenAnswer := "未提交"
 	if len(s.Part1) > 0 {
 		var answers part1Answers
 		if err := json.Unmarshal(s.Part1, &answers); err == nil {
@@ -1929,6 +2097,22 @@ func buildExportRow(s studentSurvey) []string {
 			}
 			if strings.TrimSpace(answers.CustomMethod) != "" {
 				customLearningMethod = answers.CustomMethod
+			}
+		}
+	}
+	if s.Part2 != nil && strings.TrimSpace(*s.Part2) != "" {
+		items := getPart2ResponseItems(*s.Part2)
+		if len(items) == 1 {
+			part2OpenAnswer = formatPart2ResponseLabel(items[0])
+		} else {
+			for _, item := range items {
+				if strings.TrimSpace(item.QuestionText) == part2UnderstandingQuestionText {
+					part2Understanding = valueOr(formatPart2ResponseLabel(item), "未提交")
+					continue
+				}
+				if item.QuestionType == "text" || part2OpenAnswer == "未提交" {
+					part2OpenAnswer = valueOr(formatPart2ResponseLabel(item), "未提交")
+				}
 			}
 		}
 	}
@@ -1985,7 +2169,8 @@ func buildExportRow(s studentSurvey) []string {
 		truncateCell(predictionScore),
 		truncateCell(learningMethods),
 		truncateCell(customLearningMethod),
-		truncateCell(formatPart2Answer(deref(s.Part2))),
+		truncateCell(part2Understanding),
+		truncateCell(part2OpenAnswer),
 		truncateCell(valueOr(part3Answers["q1"], "未提交")),
 		truncateCell(valueOr(part3Answers["q2"], "未提交")),
 		truncateCell(valueOr(part3Answers["q3"], "未提交")),
@@ -2008,13 +2193,116 @@ func decodeJSON(r *http.Request, target interface{}) error {
 	return decoder.Decode(target)
 }
 
+func parseRawFlexibleInt(raw json.RawMessage) (int, error) {
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return 0, nil
+	}
+	if strings.HasPrefix(text, "\"") && strings.HasSuffix(text, "\"") {
+		unquoted, err := strconv.Unquote(text)
+		if err != nil {
+			return 0, err
+		}
+		text = strings.TrimSpace(unquoted)
+		if text == "" {
+			return 0, nil
+		}
+	}
+	value, err := strconv.Atoi(text)
+	if err != nil {
+		return 0, err
+	}
+	return value, nil
+}
+
+func buildPart2StoredAnswers(questions []question, legacyAnswer string, legacyAnswers []string, responses []struct {
+	QuestionID int      `json:"questionId"`
+	Answer     string   `json:"answer"`
+	Answers    []string `json:"answers"`
+}) (stored string, display string, explanation string, err error) {
+	if len(questions) == 1 && len(responses) == 0 {
+		single := questions[0]
+		stored, display, err = buildPart2StoredAnswer(single, strings.TrimSpace(legacyAnswer), legacyAnswers)
+		if err != nil {
+			return "", "", "", err
+		}
+		if single.Explanation != nil {
+			explanation = *single.Explanation
+		}
+		return stored, display, explanation, nil
+	}
+
+	responseMap := make(map[int]struct {
+		Answer  string
+		Answers []string
+	}, len(responses))
+	for _, item := range responses {
+		responseMap[item.QuestionID] = struct {
+			Answer  string
+			Answers []string
+		}{
+			Answer:  item.Answer,
+			Answers: item.Answers,
+		}
+	}
+
+	payload := part2AnswerPayload{
+		Version:   2,
+		Responses: make([]part2ResponseItem, 0, len(questions)),
+	}
+	displayParts := make([]string, 0, len(questions))
+	explanations := make([]string, 0, len(questions))
+
+	for index, q := range questions {
+		input := responseMap[q.ID]
+		// fallback for old client shape when only one value was sent
+		if index == 0 && input.Answer == "" && len(input.Answers) == 0 && strings.TrimSpace(legacyAnswer) != "" {
+			input.Answer = legacyAnswer
+			input.Answers = legacyAnswers
+		}
+		storedSingle, displaySingle, singleErr := buildPart2StoredAnswer(q, strings.TrimSpace(input.Answer), input.Answers)
+		if singleErr != nil {
+			return "", "", "", singleErr
+		}
+		item := parsePart2Payload(storedSingle)
+		item.QuestionID = q.ID
+		item.QuestionText = q.QuestionText
+		payload.Responses = append(payload.Responses, item)
+		displayParts = append(displayParts, displaySingle)
+		if q.Explanation != nil && strings.TrimSpace(*q.Explanation) != "" {
+			explanations = append(explanations, *q.Explanation)
+		}
+	}
+
+	raw, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		return "", "", "", marshalErr
+	}
+	return string(raw), strings.Join(displayParts, " | "), strings.Join(explanations, "\n\n"), nil
+}
+
 func buildPart2StoredAnswer(q question, answer string, answers []string) (stored string, display string, err error) {
 	switch q.QuestionType {
 	case "text":
 		if strings.TrimSpace(answer) == "" {
 			return "", "", errors.New("请填写你的答案")
 		}
-		return answer, answer, nil
+		annotationCount := countPart2Annotations(answer)
+		if q.AnnotationEnabled && annotationCount == 0 {
+			return "", "", errors.New("请至少对一处内容进行颜色标注后再提交")
+		}
+		plainText := stripHTMLTags(answer)
+		payload := part2AnswerPayload{
+			QuestionType:    q.QuestionType,
+			Value:           answer,
+			Label:           plainText,
+			AnnotationCount: annotationCount,
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return "", "", err
+		}
+		return string(raw), plainText, nil
 	case "multi":
 		cleaned := make([]string, 0, len(answers))
 		for _, item := range answers {
@@ -2053,28 +2341,144 @@ func buildPart2StoredAnswer(q question, answer string, answers []string) (stored
 	}
 }
 
+func parsePart2Payload(raw string) part2ResponseItem {
+	var payload part2AnswerPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err == nil {
+		if len(payload.Responses) > 0 {
+			return payload.Responses[0]
+		}
+		return part2ResponseItem{
+			QuestionType:    payload.QuestionType,
+			Value:           payload.Value,
+			Values:          payload.Values,
+			Label:           payload.Label,
+			Labels:          payload.Labels,
+			AnnotationCount: payload.AnnotationCount,
+		}
+	}
+	return part2ResponseItem{
+		QuestionType: "text",
+		Value:        raw,
+		Label:        raw,
+	}
+}
+
+func getPart2ResponseItems(raw string) []part2ResponseItem {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var payload part2AnswerPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err == nil {
+		if len(payload.Responses) > 0 {
+			return payload.Responses
+		}
+		return []part2ResponseItem{{
+			QuestionType:    payload.QuestionType,
+			Value:           payload.Value,
+			Values:          payload.Values,
+			Label:           payload.Label,
+			Labels:          payload.Labels,
+			AnnotationCount: payload.AnnotationCount,
+		}}
+	}
+	return []part2ResponseItem{{
+		QuestionType: "text",
+		Value:        raw,
+		Label:        raw,
+	}}
+}
+
 func formatPart2Answer(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-	var payload part2AnswerPayload
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	items := getPart2ResponseItems(raw)
+	if len(items) == 0 {
 		return raw
 	}
-	if len(payload.Labels) > 0 {
-		return strings.Join(payload.Labels, "、")
+	if len(items) == 1 {
+		return formatPart2ResponseLabel(items[0])
 	}
-	if strings.TrimSpace(payload.Label) != "" {
-		return payload.Label
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		label := formatPart2ResponseLabel(item)
+		if strings.TrimSpace(item.QuestionText) != "" {
+			parts = append(parts, item.QuestionText+": "+label)
+		} else {
+			parts = append(parts, label)
+		}
 	}
-	if len(payload.Values) > 0 {
-		return strings.Join(payload.Values, "、")
+	return strings.Join(parts, "；")
+}
+
+func formatPart2ResponseLabel(item part2ResponseItem) string {
+	if len(item.Labels) > 0 {
+		return strings.Join(item.Labels, "、")
 	}
-	if strings.TrimSpace(payload.Value) != "" {
-		return payload.Value
+	if strings.TrimSpace(item.Label) != "" {
+		return item.Label
 	}
-	return raw
+	if len(item.Values) > 0 {
+		return strings.Join(item.Values, "、")
+	}
+	if strings.TrimSpace(item.Value) != "" {
+		return item.Value
+	}
+	return ""
+}
+
+func countPart2Annotations(raw string) int {
+	return strings.Count(raw, "part2-highlight--green") +
+		strings.Count(raw, "part2-highlight--yellow") +
+		strings.Count(raw, "part2-highlight--red")
+}
+
+func stripHTMLTags(raw string) string {
+	replacer := strings.NewReplacer(
+		"<br>", "\n",
+		"<br/>", "\n",
+		"<br />", "\n",
+		"</div>", "\n",
+		"</p>", "\n",
+		"&nbsp;", " ",
+	)
+	normalized := replacer.Replace(raw)
+	var builder strings.Builder
+	inTag := false
+	for _, ch := range normalized {
+		switch ch {
+		case '<':
+			inTag = true
+		case '>':
+			inTag = false
+		default:
+			if !inTag {
+				builder.WriteRune(ch)
+			}
+		}
+	}
+	lines := strings.Split(builder.String(), "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		text := strings.TrimSpace(htmlUnescape(line))
+		if text != "" {
+			cleaned = append(cleaned, text)
+		}
+	}
+	return strings.Join(cleaned, "\n")
+}
+
+func htmlUnescape(raw string) string {
+	replacer := strings.NewReplacer(
+		"&lt;", "<",
+		"&gt;", ">",
+		"&amp;", "&",
+		"&quot;", "\"",
+		"&#39;", "'",
+	)
+	return replacer.Replace(raw)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload apiResponse) {

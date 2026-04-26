@@ -1,7 +1,7 @@
 (function initAppConfig() {
   const params = new URLSearchParams(window.location.search);
   const queryApiBase = params.get('apiBase');
-  const defaultApiBase = 'http://14.103.79.53:8080/api';
+  const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8080/api`;
   let storedApiBase = null;
 
   try {

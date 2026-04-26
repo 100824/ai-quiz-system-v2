@@ -1,7 +1,7 @@
 let currentCourseId = null;
-let currentStage = 1;
+let currentStage = 0;
 let currentPartSettings = { 1: true, 2: true, 3: true, 4: true };
-const API_BASE = window.APP_CONFIG?.apiBase || 'http://14.103.79.53:8080/api';
+const API_BASE = window.APP_CONFIG?.apiBase || `${window.location.protocol}//${window.location.hostname}:8080/api`;
 let courseAutoRefreshTimer = null;
 let loadCurrentStageInFlight = false;
 let currentStatsStudents = [];
@@ -23,6 +23,10 @@ function updateApiBaseHint() {
 
 function isPartEnabled(part) {
   return currentPartSettings[String(part)] !== false && currentPartSettings[part] !== false;
+}
+
+function formatStageLabel(stage) {
+  return Number(stage) === 0 ? '准备环节' : `第${stage}部分`;
 }
 
 function renderPartToggleList() {
@@ -120,6 +124,14 @@ function formatPart2Answer(answer) {
   if (typeof answer !== 'string') return String(answer);
   try {
     const parsed = JSON.parse(answer);
+    if (Array.isArray(parsed.responses) && parsed.responses.length > 0) {
+      return parsed.responses.map((item) => {
+        const label = Array.isArray(item.labels) && item.labels.length > 0
+          ? item.labels.join('、')
+          : item.label || (Array.isArray(item.values) ? item.values.join('、') : item.value || '');
+        return item.questionText ? `${item.questionText}：${label}` : label;
+      }).join('；');
+    }
     if (Array.isArray(parsed.labels) && parsed.labels.length > 0) {
       return parsed.labels.join('、');
     }
@@ -136,6 +148,37 @@ function formatPart2Answer(answer) {
     // 历史数据可能是纯文本
   }
   return answer;
+}
+
+function formatPart2AnswerRich(answer) {
+  if (!answer) return '';
+  if (typeof answer !== 'string') return String(answer);
+  try {
+    const parsed = JSON.parse(answer);
+    if (Array.isArray(parsed.responses) && parsed.responses.length > 0) {
+      return parsed.responses.map((item) => {
+        const label = item.questionType === 'text' && item.value
+          ? item.value
+          : (Array.isArray(item.labels) && item.labels.length > 0
+            ? item.labels.join('、')
+            : item.label || (Array.isArray(item.values) ? item.values.join('、') : item.value || ''));
+        return `<div style="margin-bottom: 12px;"><strong>${item.questionText || '第二部分题目'}：</strong><div>${label}</div></div>`;
+      }).join('');
+    }
+    if (parsed.questionType === 'text' && parsed.value) {
+      return parsed.value;
+    }
+  } catch (error) {
+    return answer;
+  }
+  return formatPart2Answer(answer);
+}
+
+function updateAnnotationControlVisibility() {
+  const questionType = document.getElementById('editQuestionType')?.value;
+  const group = document.getElementById('annotationControlGroup');
+  if (!group) return;
+  group.style.display = questionType === 'text' ? 'block' : 'none';
 }
 
 // 初始化tab切换
@@ -261,7 +304,7 @@ async function getCurrentStage() {
     
     if (data.success) {
       currentStage = data.data.stage;
-      document.getElementById('currentStage').textContent = `当前阶段: 第${currentStage}部分`;
+      document.getElementById('currentStage').textContent = `当前阶段: ${formatStageLabel(currentStage)}`;
     }
   } catch (error) {
     console.error('获取阶段失败:', error);
@@ -381,10 +424,15 @@ async function loadQuestions() {
         return `
         <div class="question-item">
           <h4>${q.id}. ${q.question_text}</h4>
+          <p>状态: <strong style="color: ${q.enabled === false ? '#f56c6c' : '#67c23a'};">${q.enabled === false ? '已关闭' : '已开启'}</strong></p>
+          ${q.question_type === 'text' ? `<p>颜色标注: <strong style="color: ${q.annotation_enabled === false ? '#909399' : '#409eff'};">${q.annotation_enabled === false ? '关闭' : '开启'}</strong></p>` : ''}
           ${optionsText}
           ${q.correct_answer ? `<p>正确答案: ${q.correct_answer}</p>` : ''}
           ${q.explanation ? `<p>解析: ${q.explanation}</p>` : ''}
-          ${!(q.part == 1 && q.sort_order == 1) ? `<button class="btn btn-sm" onclick="editQuestion(${q.id})">编辑</button>` : '<span style="color: #999; font-size: 12px; margin-left: 10px;">系统默认题目，不可编辑</span>'}
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+            ${!(q.part == 1 && q.sort_order == 1) ? `<button class="btn btn-sm" onclick="editQuestion(${q.id})">编辑</button>` : '<span style="color: #999; font-size: 12px; margin-left: 10px;">系统默认题目，不可编辑</span>'}
+            <button class="btn btn-sm" onclick="toggleQuestionEnabled(${q.id}, ${q.enabled === false ? 'true' : 'false'})">${q.enabled === false ? '开启题目' : '关闭题目'}</button>
+          </div>
         </div>
       `}).join('');
       document.getElementById('questionList').innerHTML = html || '<p>暂无题目</p>';
@@ -531,6 +579,15 @@ async function loadStats() {
       html += '<h5 style="margin: 0 0 10px 0; color: #67c23a;">第二部分：思考与讨论填写情况</h5>';
       const filledRate = stats.part2Stats.totalCount > 0 ? Math.round(stats.part2Stats.filledCount / stats.part2Stats.totalCount * 100) : 0;
       html += `<p>填写人数：${stats.part2Stats.filledCount}/${stats.part2Stats.totalCount}人（${filledRate}%）</p>`;
+      const understandingStats = stats.part2Stats.understandingDistribution || {};
+      const understandingItems = Object.entries(understandingStats);
+      if (understandingItems.length > 0) {
+        html += '<p><strong>理解程度分布：</strong></p><ul style="margin: 5px 0 0 20px; padding-left: 20px;">';
+        understandingItems.forEach(([label, count]) => {
+          html += `<li>${label}：${count}人</li>`;
+        });
+        html += '</ul>';
+      }
       html += '</div>';
       
       // 第三部分统计
@@ -711,6 +768,7 @@ async function editQuestion(id) {
       document.getElementById('editQuestionType').value = currentEditingQuestion.question_type || 'single';
       document.getElementById('editCorrectAnswer').value = currentEditingQuestion.correct_answer || '';
       document.getElementById('editExplanation').innerHTML = currentEditingQuestion.explanation || '';
+      document.getElementById('editAnnotationEnabled').checked = currentEditingQuestion.annotation_enabled !== false;
       
       // 处理选项
       const optionsList = document.getElementById('optionsList');
@@ -748,6 +806,7 @@ async function editQuestion(id) {
           document.getElementById('correctAnswerGroup').style.display = 'block';
         }
       }
+      updateAnnotationControlVisibility();
       
       // 绑定类型切换事件
       document.getElementById('editQuestionType').onchange = function() {
@@ -764,6 +823,7 @@ async function editQuestion(id) {
             addOption('错');
           }
         }
+        updateAnnotationControlVisibility();
       };
       
       // 打开模态框
@@ -786,6 +846,25 @@ function formatExplanation(type) {
   }
 }
 
+async function toggleQuestionEnabled(id, enabled) {
+  try {
+    const res = await fetch(`${API_BASE}/teacher/question/${id}/enabled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    const data = await safeFetchJson(res);
+    if (data.success) {
+      await loadQuestions();
+      alert(enabled ? '题目已开启' : '题目已关闭');
+    } else {
+      alert(data.error || '更新失败');
+    }
+  } catch (error) {
+    alert('更新失败: ' + error.message);
+  }
+}
+
 // 保存题目
 async function saveQuestion() {
   const questionId = document.getElementById('editQuestionId').value;
@@ -793,6 +872,7 @@ async function saveQuestion() {
   const questionType = document.getElementById('editQuestionType').value;
   const correctAnswer = document.getElementById('editCorrectAnswer').value.trim();
   const explanation = document.getElementById('editExplanation').innerHTML.trim();
+  const annotationEnabled = document.getElementById('editAnnotationEnabled')?.checked !== false;
   
   if (!questionId || !questionText) {
     alert('请填写题目内容！');
@@ -820,7 +900,8 @@ async function saveQuestion() {
         questionText,
         options,
         correctAnswer,
-        explanation
+        explanation,
+        annotationEnabled
       })
     });
     
@@ -869,7 +950,7 @@ async function loadCurrentStage() {
       const data = await safeFetchJson(res);
       
       if (data.success) {
-        document.getElementById('currentStageText').textContent = `第${data.data.stage}部分`;
+        document.getElementById('currentStageText').textContent = formatStageLabel(data.data.stage);
       }
     } catch (error) {
       console.error('加载当前阶段失败:', error);
@@ -920,12 +1001,12 @@ async function setStage(stage) {
     alert('请先选择课程和班级');
     return;
   }
-  if (!isPartEnabled(stage)) {
+  if (Number(stage) > 0 && !isPartEnabled(stage)) {
     alert(`第${stage}部分当前已关闭，请先在题目管理中开启后再切换`);
     return;
   }
   
-  if (!confirm(`确定要将${className}切换到第${stage}部分吗？`)) return;
+  if (!confirm(`确定要将${className}切换到${formatStageLabel(stage)}吗？`)) return;
   
   try {
     const res = await fetch(`${API_BASE}/teacher/stage`, {
@@ -936,7 +1017,7 @@ async function setStage(stage) {
     const data = await safeFetchJson(res);
     
     if (data.success) {
-      alert(`已成功切换到第${stage}部分！`);
+      alert(`已成功切换到${formatStageLabel(stage)}！`);
       loadCurrentStage();
     } else {
       alert(data.error || '切换失败');
@@ -989,7 +1070,7 @@ function showStudentDetail(student) {
   if (student.part2_answer) {
     html += `<div style="margin-bottom: 20px; padding: 15px; background: #e8f4fd; border-radius: 8px;">
       <h4 style="margin: 0 0 10px 0;">💬 第二部分：思考与讨论</h4>
-      <p>${formatPart2Answer(student.part2_answer)}</p>
+      <div class="teacher-part2-rich">${formatPart2AnswerRich(student.part2_answer)}</div>
     </div>`;
   } else {
     html += `<div style="margin-bottom: 20px; padding: 15px; background: #fff3f3; border-radius: 8px;">

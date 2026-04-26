@@ -60,9 +60,10 @@
         </div>
         <div class="form-group">
           <label>当前进度</label>
-          <p id="currentStageText" style="font-size: 18px; font-weight: 700; color: #42b3ff; margin: 10px 0;">第1部分</p>
+          <p id="currentStageText" style="font-size: 18px; font-weight: 700; color: #42b3ff; margin: 10px 0;">准备环节</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="btn" id="stage-btn-0" onclick="setStage(0)">切换到准备环节</button>
           <button class="btn" id="stage-btn-1" onclick="setStage(1)">切换到第1部分</button>
           <button class="btn" id="stage-btn-2" onclick="setStage(2)">切换到第2部分</button>
           <button class="btn" id="stage-btn-3" onclick="setStage(3)">切换到第3部分</button>
@@ -196,6 +197,13 @@
           <div class="form-group" id="correctAnswerGroup">
             <label>正确答案：</label>
             <input type="text" id="editCorrectAnswer" placeholder="请输入正确答案" style="width: 100%;">
+          </div>
+          <div class="form-group" id="annotationControlGroup" style="display: none;">
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
+              <input type="checkbox" id="editAnnotationEnabled" style="width: auto;">
+              <span>开启颜色标注要求</span>
+            </label>
+            <p style="margin: 6px 0 0 24px; color: #6b7280; font-size: 13px;">开启后学生端显示颜色标注按钮，提交时至少需要标注一次；关闭后作为普通填空题提交。</p>
           </div>
           <div class="form-group">
             <label>答案解析（支持加粗、标红、换行格式）：</label>

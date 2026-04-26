@@ -7,15 +7,23 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>人工智能学习平台 - 学生端</title>
-  <link rel="stylesheet" href="css/style.css?v=20260309">
+  <link rel="stylesheet" href="css/style.css?v=2026042602">
 </head>
-<body>
-  <div class="container">
+<body class="student-page">
+  <div class="container student-shell">
     <h1 id="course-title">人工智能学习平台</h1>
+    <p class="student-shell-subtitle">像闯关一样学习人工智能，每一题都是一次发现新技能的小冒险。</p>
     
     <!-- 登录页面 -->
-    <div id="login-page" class="card">
+    <div id="login-page" class="card student-hero-card">
+      <div class="student-hero-orbit"></div>
+      <div class="student-hero-meta">
+        <span class="student-pill">互动答题</span>
+        <span class="student-pill">课堂闯关</span>
+        <span class="student-pill">学习回顾</span>
+      </div>
       <h2>👋 欢迎你！</h2>
+      <p class="student-hero-subtitle">选择班级，输入姓名，马上进入今天的 AI 学习挑战。</p>
       <div class="input-group">
         <label for="class-select">请选择你的班级：</label>
         <select id="class-select">
@@ -41,13 +49,26 @@
     
     <!-- 问卷页面 -->
     <div id="survey-page" class="hidden">
-      <div class="card" style="margin-bottom: 20px; padding: 15px; background: #E8F4FD;">
+      <div class="card student-stage-banner" style="margin-bottom: 20px; padding: 15px; background: #E8F4FD;">
         <h3 style="margin: 0; text-align: center;">当前是：<span id="lesson-name">第1节课</span></h3>
+      </div>
+
+      <div id="prep-stage" class="card student-part-card hidden">
+        <h2>🚀 准备环节</h2>
+        <p class="student-section-intro">你已经完成登录，请先查看课堂提示，等待老师正式开启课堂。</p>
+        <div class="student-prep-tip-card">
+          <div class="student-prep-tip-head">
+            <span class="student-quiz-tag">课堂提示</span>
+            <h3>请等待老师正式开启课堂</h3>
+          </div>
+          <div id="prepTipContent" class="student-prep-tip-content">老师还没有填写课堂提示语，请稍等。</div>
+        </div>
       </div>
       
       <!-- 第一部分 -->
-      <div id="part1" class="card">
+      <div id="part1" class="card student-part-card">
         <h2>📝 第一部分：上课前</h2>
+        <p class="student-section-intro">先做个热身，猜一猜今天的表现，再选一选你准备怎么学。</p>
         <div id="part1-content">
           <!-- 题目会动态加载 -->
         </div>
@@ -65,10 +86,11 @@
       </div>
       
       <!-- 第二部分 -->
-      <div id="part2" class="card hidden">
+      <div id="part2" class="card student-part-card hidden">
         <h2>💬 第二部分：思考与讨论</h2>
+        <p class="student-section-intro">跟着老师的引导大胆表达，把你的想法完整说出来。</p>
         <!-- 答题指引区域 -->
-        <div id="part2GuideSection" style="margin-bottom: 25px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; display: none;">
+        <div id="part2GuideSection" class="student-guide-card" style="margin-bottom: 25px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; display: none;">
           <h4 style="margin: 0 0 10px 0; color: #856404;">📋 答题指引</h4>
           <div id="part2GuideContent" style="font-size: 15px; line-height: 1.8; user-select: text; white-space: pre-wrap; word-wrap: break-word;">
           </div>
@@ -90,8 +112,9 @@
       </div>
       
       <!-- 第三部分 -->
-      <div id="part3" class="card hidden">
+      <div id="part3" class="card student-part-card hidden">
         <h2>✍️ 第三部分：小测验</h2>
+        <p class="student-section-intro">进入答题关卡，看看你对本节课内容掌握得怎么样。</p>
         <div id="part3-content">
           <!-- 题目会动态加载 -->
         </div>
@@ -101,9 +124,10 @@
       </div>
       
       <!-- 第三部分答案解析 -->
-      <div id="part3-results" class="card hidden">
+      <div id="part3-results" class="card student-part-card hidden">
         <h2>✅ 小测验结果</h2>
-        <div id="score-display" style="text-align: center; margin-bottom: 20px; padding: 15px; background: #f0f9ff; border-radius: 12px;">
+        <p class="student-section-intro">看看这轮挑战得了多少分，再复盘一下每一道题。</p>
+        <div id="score-display" class="student-score-display" style="text-align: center; margin-bottom: 20px; padding: 15px; background: #f0f9ff; border-radius: 12px;">
           <h3 style="margin: 0 0 10px 0;">你的得分</h3>
           <div style="font-size: 2em; font-weight: bold; color: var(--primary-color);" id="total-score">0/5</div>
         </div>
@@ -117,8 +141,9 @@
       </div>
       
       <!-- 第四部分 -->
-      <div id="part4" class="card hidden">
+      <div id="part4" class="card student-part-card hidden">
         <h2>🌟 第四部分：课后反思</h2>
+        <p class="student-section-intro">复盘本节课的表现，把你的发现和下一步计划记录下来。</p>
         <div id="part4-content">
           <!-- 动态生成内容 -->
         </div>
@@ -128,9 +153,10 @@
       </div>
       
       <!-- 完成页面 -->
-      <div id="completed-page" class="card hidden">
+      <div id="completed-page" class="card student-complete-card hidden">
         <div class="waiting-message">
           <div class="emoji">🎉</div>
+          <div class="student-complete-badge">学习任务完成</div>
           <p>太棒了！你已经完成了所有问卷！<br>谢谢你的参与！🌟</p>
         </div>
         <div class="btn-group" style="margin-top: 20px;">
@@ -140,7 +166,7 @@
     </div>
     
     <!-- 加载中 -->
-    <div id="loading" class="card hidden">
+    <div id="loading" class="card hidden student-loading-card">
       <div class="loading">
         <div class="spinner"></div>
         <p>请稍候...</p>
@@ -172,8 +198,18 @@
       }
     }
   </style>
+
+  <div id="student-alert-modal" class="student-alert-modal hidden" role="dialog" aria-modal="true" aria-labelledby="student-alert-title">
+    <div class="student-alert-backdrop"></div>
+    <div class="student-alert-panel">
+      <div class="student-alert-icon">💡</div>
+      <h3 id="student-alert-title">提示</h3>
+      <p id="student-alert-message"></p>
+      <button id="student-alert-confirm" class="btn btn-primary" type="button">我知道了</button>
+    </div>
+  </div>
   
-  <script src="js/config.js?v=2026042201"></script>
-  <script src="js/student.js?v=2026042201"></script>
+  <script src="js/config.js?v=2026042601"></script>
+  <script src="js/student.js?v=2026042601"></script>
 </body>
 </html>
