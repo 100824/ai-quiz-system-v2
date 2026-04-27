@@ -1764,6 +1764,7 @@ header h1 {
   /* 移除斜体，要求不使用斜体 */
   font-style: normal;
   line-height: 1.7;
+  font-size: 15px;
 }
 
 .answer-item .explanation .label {
@@ -1785,6 +1786,7 @@ header h1 {
 #part2-explanation-content {
   line-height: 1.7;
   color: #2c3e50 !important;
+  font-size: 15px;
 }
 
 #part2-results,
