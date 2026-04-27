@@ -1250,6 +1250,7 @@ function formatText(type) {
 // 清空提示语
 function clearTip() {
   document.getElementById('tipInput').innerHTML = '';
+  submitTip();
 }
 
 // 提交提示语
@@ -1257,14 +1258,9 @@ async function submitTip() {
   const courseId = document.getElementById('stageCourseSelect').value;
   const className = document.getElementById('stageClassSelect').value;
   const content = document.getElementById('tipInput').innerHTML.trim();
-  
+
   if (!courseId || !className) {
     alert('请先选择课程和班级');
-    return;
-  }
-  
-  if (!content) {
-    alert('请输入提示语内容');
     return;
   }
   
