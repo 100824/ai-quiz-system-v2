@@ -1212,22 +1212,20 @@ header h1 {
   display: inline;
   padding: 0.08em 0.18em;
   border-radius: 0.35em;
-  font-weight: 700;
+  color: inherit !important;
+  font-weight: inherit;
 }
 
 .part2-highlight--green {
   background: #dff5dd;
-  color: #14532d;
 }
 
 .part2-highlight--yellow {
   background: #fff1b8;
-  color: #7a4b00;
 }
 
 .part2-highlight--red {
   background: #ffdada;
-  color: #991b1b;
 }
 
 .locked {
@@ -1773,11 +1771,6 @@ header h1 {
 #part2-results span,
 #part2-results div {
   color: #000000;
-}
-
-#part2-explanation-content .part2-highlight--red,
-.answer-item .explanation .content .part2-highlight--red {
-  color: #b91c1c;
 }
 
 @media (max-width: 768px) {

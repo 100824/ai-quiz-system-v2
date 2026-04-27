@@ -400,6 +400,107 @@ function countPart2Highlights(root) {
   return root.querySelectorAll('.part2-highlight--green, .part2-highlight--yellow, .part2-highlight--red').length;
 }
 
+function unwrapPart2HighlightNode(node) {
+  if (!node || !node.parentNode) return;
+  const parent = node.parentNode;
+  while (node.firstChild) {
+    parent.insertBefore(node.firstChild, node);
+  }
+  parent.removeChild(node);
+}
+
+function unwrapPart2HighlightsInContainer(container) {
+  if (!container || typeof container.querySelectorAll !== 'function') return;
+  const nodes = Array.from(container.querySelectorAll('.part2-highlight'));
+  nodes.forEach((node) => unwrapPart2HighlightNode(node));
+}
+
+function getPart2SelectedTextSegments(editor, range) {
+  if (!editor || !range) return [];
+  const segments = [];
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.textContent || !node.textContent.trim()) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      try {
+        return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      } catch (error) {
+        return NodeFilter.FILTER_REJECT;
+      }
+    }
+  });
+
+  let node = walker.nextNode();
+  while (node) {
+    const start = range.startContainer === node ? range.startOffset : 0;
+    const end = range.endContainer === node ? range.endOffset : node.textContent.length;
+    if (end > start) {
+      segments.push({ node, start, end });
+    }
+    node = walker.nextNode();
+  }
+
+  return segments;
+}
+
+function isolatePart2TextSegment(node, start, end) {
+  let target = node;
+  if (end < target.textContent.length) {
+    target.splitText(end);
+  }
+  if (start > 0) {
+    target = target.splitText(start);
+  }
+  return target;
+}
+
+function unwrapPart2HighlightForTextNode(textNode) {
+  if (!textNode || !textNode.parentNode) return textNode;
+  const highlight = textNode.parentNode;
+  if (!(highlight instanceof HTMLElement) || !highlight.classList.contains('part2-highlight')) {
+    return textNode;
+  }
+
+  const parent = highlight.parentNode;
+  if (!parent) return textNode;
+
+  const hasBefore = !!textNode.previousSibling;
+  const hasAfter = !!textNode.nextSibling;
+
+  if (hasBefore && hasAfter) {
+    const afterWrapper = highlight.cloneNode(false);
+    while (textNode.nextSibling) {
+      afterWrapper.appendChild(textNode.nextSibling);
+    }
+    parent.insertBefore(afterWrapper, highlight.nextSibling);
+    parent.insertBefore(textNode, afterWrapper);
+  } else if (hasBefore) {
+    parent.insertBefore(textNode, highlight.nextSibling);
+  } else if (hasAfter) {
+    parent.insertBefore(textNode, highlight);
+  } else {
+    parent.insertBefore(textNode, highlight);
+  }
+
+  if (!highlight.textContent) {
+    parent.removeChild(highlight);
+  }
+
+  return textNode;
+}
+
+function wrapPart2TextNode(textNode, color) {
+  if (!textNode || !textNode.parentNode || !textNode.textContent || !textNode.textContent.trim()) {
+    return 0;
+  }
+  const span = document.createElement('span');
+  span.className = `part2-highlight part2-highlight--${color}`;
+  textNode.parentNode.replaceChild(span, textNode);
+  span.appendChild(textNode);
+  return 1;
+}
+
 function getPart2EditorHtml() {
   const editor = getPart2Editor();
   return editor ? normalizePart2RichText(editor.innerHTML) : '';
@@ -434,15 +535,23 @@ function applyPart2Highlight(color, questionId = '') {
     return;
   }
 
-  const span = document.createElement('span');
-  span.className = `part2-highlight part2-highlight--${color}`;
-  try {
-    range.surroundContents(span);
-  } catch (error) {
-    const content = range.extractContents();
-    span.appendChild(content);
-    range.insertNode(span);
+  const segments = getPart2SelectedTextSegments(editor, range);
+  if (segments.length === 0) {
+    window.showStudentAlert?.('请选中具体文字后再标注。', 'warning');
+    return;
   }
+
+  let appliedCount = 0;
+  segments.reverse().forEach(({ node, start, end }) => {
+    const isolatedNode = isolatePart2TextSegment(node, start, end);
+    const plainNode = unwrapPart2HighlightForTextNode(isolatedNode);
+    appliedCount += wrapPart2TextNode(plainNode, color);
+  });
+  if (appliedCount === 0) {
+    window.showStudentAlert?.('请选中具体文字后再标注。', 'warning');
+    return;
+  }
+  editor.normalize();
   selection.removeAllRanges();
 }
 
@@ -462,11 +571,17 @@ function clearPart2Highlight(questionId = '') {
     return;
   }
 
-  const fragment = range.extractContents();
-  fragment.querySelectorAll?.('.part2-highlight').forEach((node) => {
-    node.replaceWith(document.createTextNode(node.textContent || ''));
+  const segments = getPart2SelectedTextSegments(editor, range);
+  if (segments.length === 0) {
+    window.showStudentAlert?.('请选中具体文字后再去除颜色。', 'warning');
+    return;
+  }
+
+  segments.reverse().forEach(({ node, start, end }) => {
+    const isolatedNode = isolatePart2TextSegment(node, start, end);
+    unwrapPart2HighlightForTextNode(isolatedNode);
   });
-  range.insertNode(fragment);
+  editor.normalize();
   selection.removeAllRanges();
 }
 
