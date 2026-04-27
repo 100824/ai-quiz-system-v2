@@ -1250,20 +1250,21 @@ function formatText(type) {
 // 清空提示语
 function clearTip() {
   document.getElementById('tipInput').innerHTML = '';
-  submitTip();
+  // 强制提交空字符串，避免 contenteditable 残留 <br>
+  submitTipExplicit('');
 }
 
-// 提交提示语
-async function submitTip() {
+// 提交提示语（显式传入内容，用于清空场景）
+async function submitTipExplicit(explicitContent) {
   const courseId = document.getElementById('stageCourseSelect').value;
   const className = document.getElementById('stageClassSelect').value;
-  const content = document.getElementById('tipInput').innerHTML.trim();
+  const content = explicitContent !== undefined ? explicitContent : document.getElementById('tipInput').innerHTML.trim();
 
   if (!courseId || !className) {
     alert('请先选择课程和班级');
     return;
   }
-  
+
   try {
     const res = await fetch(`${API_BASE}/teacher/tip`, {
       method: 'POST',
@@ -1271,7 +1272,7 @@ async function submitTip() {
       body: JSON.stringify({ courseId, className, content })
     });
     const data = await safeFetchJson(res);
-    
+
     if (data.success) {
       alert('提示语提交成功！学生端将实时显示');
     } else {
@@ -1280,4 +1281,9 @@ async function submitTip() {
   } catch (error) {
     alert('提交失败: ' + error.message);
   }
+}
+
+// 提交提示语
+async function submitTip() {
+  await submitTipExplicit();
 }
