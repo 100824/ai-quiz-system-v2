@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>人工智能学习平台 - 学生端</title>
-  <link rel="stylesheet" href="css/style.css?v=2026042602">
+  <link rel="stylesheet" href="css/style.css?v=2026042701">
 </head>
 <body class="student-page">
   <div class="container student-shell">
@@ -49,7 +49,7 @@
     
     <!-- 问卷页面 -->
     <div id="survey-page" class="hidden">
-      <div class="card student-stage-banner" style="margin-bottom: 20px; padding: 15px; background: #E8F4FD;">
+      <div class="card student-stage-banner" style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, rgba(232,242,252,0.98), rgba(218,234,248,0.94));">
         <h3 style="margin: 0; text-align: center;">当前是：<span id="lesson-name">第1节课</span></h3>
       </div>
 
@@ -90,7 +90,7 @@
         <h2>💬 第二部分：思考与讨论</h2>
         <p class="student-section-intro">跟着老师的引导大胆表达，把你的想法完整说出来。</p>
         <!-- 答题指引区域 -->
-        <div id="part2GuideSection" class="student-guide-card" style="margin-bottom: 25px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; display: none;">
+        <div id="part2GuideSection" class="student-guide-card" style="margin-bottom: 25px; padding: 15px; background: linear-gradient(180deg, #fff5d0 0%, #fff0c0 100%); border: 1px solid rgba(232,200,122,0.35); border-radius: 16px; display: none;">
           <h4 style="margin: 0 0 10px 0; color: #856404;">📋 答题指引</h4>
           <div id="part2GuideContent" style="font-size: 15px; line-height: 1.8; user-select: text; white-space: pre-wrap; word-wrap: break-word;">
           </div>
@@ -127,9 +127,9 @@
       <div id="part3-results" class="card student-part-card hidden">
         <h2>✅ 小测验结果</h2>
         <p class="student-section-intro">看看这轮挑战得了多少分，再复盘一下每一道题。</p>
-        <div id="score-display" class="student-score-display" style="text-align: center; margin-bottom: 20px; padding: 15px; background: #f0f9ff; border-radius: 12px;">
-          <h3 style="margin: 0 0 10px 0;">你的得分</h3>
-          <div style="font-size: 2em; font-weight: bold; color: var(--primary-color);" id="total-score">0/5</div>
+        <div id="score-display" class="student-score-display" style="text-align: center; margin-bottom: 20px; padding: 20px; background: linear-gradient(180deg, #e8f2fa 0%, #f8fbff 100%); border-radius: 20px; border: 1px solid rgba(59,130,246,0.15);">
+          <h3 style="margin: 0 0 10px 0; color: #4a6fa5;">你的得分</h3>
+          <div style="font-size: 2.2em; font-weight: bold; color: var(--primary-color);" id="total-score">0/5</div>
         </div>
         <div id="results-content" style="margin-bottom: 20px;">
           <!-- 答案解析会动态生成 -->
@@ -175,7 +175,7 @@
   </div>
 
   <!-- 课堂黑板提示区（常驻顶部） -->
-  <div id="tipBlackboard" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; z-index: 9999; box-shadow: 0 2px 15px rgba(0,0,0,0.2);">
+  <div id="tipBlackboard" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(135deg, #5B9BD5 0%, #7BA7D9 55%, #A8C8EC 100%); color: white; z-index: 9999; box-shadow: 0 4px 20px rgba(59,130,246,0.3); border-bottom: 2px solid rgba(255,255,255,0.3);">
     <div style="max-width: 1200px; margin: 0 auto; padding: 12px 20px;">
       <div style="display: flex; align-items: flex-start; gap: 15px;">
         <div style="font-size: 24px; flex-shrink: 0;">📋</div>

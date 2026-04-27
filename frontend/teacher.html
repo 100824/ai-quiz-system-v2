@@ -4,25 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>人工智能学习平台 - 教师管理后台</title>
-  <link rel="stylesheet" href="css/style.css?v=2026030902">
+  <link rel="stylesheet" href="css/style.css?v=2026042701">
 </head>
 <body>
   <!-- 密码验证遮罩层 -->
-  <div id="passwordOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; z-index: 9999;">
-    <div style="background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); width: 400px; text-align: center;">
-      <h2 style="margin: 0 0 20px 0; color: #333;">🔒 教师端访问验证</h2>
-      <p style="margin: 0 0 30px 0; color: #666;">请输入访问密码</p>
+  <div id="passwordOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #3B82F6 0%, #7BA7D9 55%, #A8C8EC 100%); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+    <div style="background: white; padding: 40px; border-radius: 24px; box-shadow: 0 20px 50px rgba(59,130,246,0.35); width: 400px; text-align: center; border: 3px solid rgba(255,255,255,0.6);">
+      <div style="font-size: 48px; margin-bottom: 12px;">🔐</div>
+      <h2 style="margin: 0 0 12px 0; color: #4a6fa5;">教师端访问验证</h2>
+      <p style="margin: 0 0 30px 0; color: #6a8db5; font-size: 15px;">请输入访问密码，进入课堂管理后台~</p>
       <div class="form-group">
-        <input type="password" id="passwordInput" placeholder="请输入密码" style="width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 20px; text-align: center; letter-spacing: 4px;" maxlength="4">
+        <input type="password" id="passwordInput" placeholder="请输入密码" style="width: 100%; padding: 14px; font-size: 18px; border: 2px solid #c0d8f0; border-radius: 16px; margin-bottom: 20px; text-align: center; letter-spacing: 6px; background: #f5faff; color: #4a6fa5; font-weight: 700;" maxlength="4">
       </div>
-      <div style="color: #ff4757; margin-bottom: 20px; min-height: 20px;" id="passwordError"></div>
-      <button class="btn btn-primary" onclick="checkPassword()" style="width: 100%; padding: 12px; font-size: 16px;">确认进入</button>
+      <div style="color: #FF6B6B; margin-bottom: 20px; min-height: 20px; font-weight: 600;" id="passwordError"></div>
+      <button class="btn btn-primary" onclick="checkPassword()" style="width: 100%; padding: 14px; font-size: 18px; border-radius: 18px;">🚀 确认进入</button>
     </div>
   </div>
 
   <div class="container" id="mainContainer" style="display: none;">
     <header>
-      <h1>📚 人工智能学习平台 - 教师管理后台</h1>
+      <h1>🎓 人工智能学习平台 - 教师管理后台</h1>
       <div class="header-info">
         <span id="currentCourse"></span>
         <span id="currentStage"></span>
@@ -60,7 +61,7 @@
         </div>
         <div class="form-group">
           <label>当前进度</label>
-          <p id="currentStageText" style="font-size: 18px; font-weight: 700; color: #42b3ff; margin: 10px 0;">准备环节</p>
+          <p id="currentStageText" style="font-size: 18px; font-weight: 700; color: var(--primary-color); margin: 10px 0;">准备环节</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
           <button class="btn" id="stage-btn-0" onclick="setStage(0)">切换到准备环节</button>
@@ -71,7 +72,7 @@
         </div>
         
         <!-- 完成情况展示 -->
-        <div id="courseCompletionStats" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #eee;">
+        <div id="courseCompletionStats" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #d0e4f5;">
           <h4 style="margin: 0 0 15px 0;">📊 当前班级完成情况</h4>
           <div id="completionContent" style="line-height: 2;">
             <p style="margin: 5px 0;">请先选择班级和课程查看完成情况</p>
@@ -79,7 +80,7 @@
         </div>
 
         <!-- 课堂提示语模块 -->
-        <div id="tipModule" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #eee;">
+        <div id="tipModule" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #d0e4f5;">
           <h4 style="margin: 0 0 15px 0;">💬 课堂提示语</h4>
           <div style="margin-bottom: 10px;">
             <button type="button" class="btn btn-sm" onclick="formatText('bold')" style="margin-right: 8px;"><strong>B</strong> 加粗</button>
@@ -87,7 +88,7 @@
           </div>
           <div class="form-group">
             <label>提示语内容（支持加粗、标红格式）：</label>
-            <div id="tipInput" contenteditable="true" style="width: 100%; min-height: 100px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word;" placeholder="请输入提示语内容，选中文字后点击上方按钮可以设置格式..."></div>
+            <div id="tipInput" contenteditable="true" style="width: 100%; min-height: 100px; padding: 14px; border: 2px solid #c0d8f0; border-radius: 14px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word; background: #f5faff;" placeholder="请输入提示语内容，选中文字后点击上方按钮可以设置格式..."></div>
           </div>
           <div style="display: flex; gap: 10px;">
             <button class="btn btn-primary" onclick="submitTip()">提交提示语</button>
@@ -203,7 +204,7 @@
               <input type="checkbox" id="editAnnotationEnabled" style="width: auto;">
               <span>开启颜色标注要求</span>
             </label>
-            <p style="margin: 6px 0 0 24px; color: #6b7280; font-size: 13px;">开启后学生端显示颜色标注按钮，提交时至少需要标注一次；关闭后作为普通填空题提交。</p>
+            <p style="margin: 6px 0 0 24px; color: #4a5e72; font-size: 13px;">开启后学生端显示颜色标注按钮，提交时至少需要标注一次；关闭后作为普通填空题提交。</p>
           </div>
           <div class="form-group">
             <label>答案解析（支持加粗、标红、换行格式）：</label>
@@ -211,7 +212,7 @@
               <button type="button" class="btn btn-sm" onclick="formatExplanation('bold')" style="margin-right: 8px;"><strong>B</strong> 加粗</button>
               <button type="button" class="btn btn-sm btn-danger" onclick="formatExplanation('red')">标红</button>
             </div>
-            <div id="editExplanation" contenteditable="true" style="width: 100%; min-height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word; background: white;" placeholder="请输入答案解析，选中文字后点击上方按钮可以设置格式..."></div>
+            <div id="editExplanation" contenteditable="true" style="width: 100%; min-height: 80px; padding: 14px; border: 2px solid #c0d8f0; border-radius: 14px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word; background: #f5faff;" placeholder="请输入答案解析，选中文字后点击上方按钮可以设置格式..."></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -255,9 +256,9 @@
         </select>
       </div>
 
-      <div class="card" style="padding: 20px; margin-bottom: 20px; background: #f7fbff;">
+      <div class="card" style="padding: 20px; margin-bottom: 20px; background: linear-gradient(180deg, #edf5fa 0%, #e5edf5 100%);">
         <h4 style="margin: 0 0 12px 0;">🔧 部分启用控制</h4>
-        <p style="margin: 0 0 14px 0; color: #5b6b7f;">关闭某个部分后，教师端将不能切换到该部分，学生端也会自动跳过该部分。</p>
+        <p style="margin: 0 0 14px 0; color: #4a5e72;">关闭某个部分后，教师端将不能切换到该部分，学生端也会自动跳过该部分。</p>
         <div id="partToggleList" style="display: flex; gap: 12px; flex-wrap: wrap;"></div>
         <div style="margin-top: 14px;">
           <button class="btn btn-primary" onclick="savePartSettings()">保存部分启用状态</button>
@@ -265,7 +266,7 @@
       </div>
 
       <!-- 第二部分答题指引编辑区域，只有选择第二部分时显示 -->
-      <div id="part2GuideSection" style="display: none; margin-bottom: 25px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+      <div id="part2GuideSection" style="display: none; margin-bottom: 25px; padding: 20px; background: linear-gradient(180deg, #edf5fa 0%, #e5edf5 100%); border-radius: 16px;">
         <h4 style="margin: 0 0 15px 0;">📝 第二部分答题指引</h4>
         <div style="margin-bottom: 10px;">
           <button type="button" class="btn btn-sm" onclick="formatGuideText('bold')" style="margin-right: 8px;"><strong>B</strong> 加粗</button>
@@ -273,7 +274,7 @@
         </div>
         <div class="form-group">
           <label>指引内容（支持加粗、标红、换行格式，将显示在学生端第二部分题目前面）：</label>
-          <div id="part2GuideInput" contenteditable="true" style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word;" placeholder="请输入答题指引内容，选中文字后点击上方按钮可以设置格式..."></div>
+          <div id="part2GuideInput" contenteditable="true" style="width: 100%; min-height: 120px; padding: 14px; border: 2px solid #c0d8f0; border-radius: 14px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word; background: #f5faff;" placeholder="请输入答题指引内容，选中文字后点击上方按钮可以设置格式..."></div>
         </div>
         <div style="display: flex; gap: 10px;">
           <button class="btn btn-primary" onclick="savePart2Guide()">保存指引</button>
