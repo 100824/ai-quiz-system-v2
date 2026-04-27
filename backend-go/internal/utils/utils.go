@@ -128,17 +128,17 @@ func ResolvePath(name string) string {
 		return name
 	}
 	candidates := []string{
-		filepath.Join(cwd, name),
+		filepath.Join(cwd, "backend-go", name), // from project root
+		filepath.Join(cwd, name),               // from backend-go dir
 		filepath.Join(cwd, "..", name),
 		filepath.Join(cwd, "..", "..", name),
 	}
 	for _, candidate := range candidates {
-		parent := filepath.Dir(candidate)
-		if _, err := os.Stat(parent); err == nil {
+		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
 	}
-	return filepath.Join(cwd, name)
+	return filepath.Join(cwd, "backend-go", name)
 }
 
 // DecodeJSON decodes the request body into target.
