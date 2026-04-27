@@ -123,8 +123,16 @@ frontend/                    当前前端静态页面
   css/
     style.css                统一样式
 
-backend-go/                  当前默认后端
-  cmd/server/main.go         Go 后端唯一主入口
+backend-go/                  当前默认后端（已分层）
+  cmd/server/main.go         启动入口、路由注册
+  internal/
+    models/models.go         数据模型
+    utils/utils.go           通用工具函数
+    middleware/middleware.go CORS、日志中间件
+    migrations/migrations.go 数据库初始化与迁移
+    repository/repository.go 数据库 CRUD
+    service/service.go       业务逻辑（统计、导出、Part2）
+    handler/handler.go       HTTP handlers
   data/quiz-system.db        当前正式 SQLite 数据
   go.mod / go.sum            Go 依赖
 
@@ -134,7 +142,7 @@ backend/                     历史 Node 后端（默认不使用）
   logger.js                  历史日志
 
 package.json                 常用启动脚本
-ecosystem.config.js          历史 PM2 配置，当前仍指向旧 Node 后端
+ecosystem.config.js          PM2 配置（已指向 Go 后端）
 架构文档.md                  更详细的系统架构与维护说明
 AGENTS.md                    之前协作约束，当前仅作历史参考
 ```
@@ -183,7 +191,10 @@ backend-go/data/quiz-system.db
 - 如果要改 API 地址逻辑，优先看 [frontend/js/config.js](/Users/fuhaotong/Documents/class_system/frontend/js/config.js:1)
 - 如果要改学生端行为，优先看 [frontend/js/student.js](/Users/fuhaotong/Documents/class_system/frontend/js/student.js:1)
 - 如果要改教师端行为，优先看 [frontend/js/teacher.js](/Users/fuhaotong/Documents/class_system/frontend/js/teacher.js:1)
-- 如果要改接口或数据结构，优先看 [backend-go/cmd/server/main.go](/Users/fuhaotong/Documents/class_system/backend-go/cmd/server/main.go:1)
+- 如果要改接口或参数校验，优先看 [backend-go/internal/handler/handler.go](/Users/fuhaotong/Documents/class_system/backend-go/internal/handler/handler.go:1)
+- 如果要改数据库查询，优先看 [backend-go/internal/repository/repository.go](/Users/fuhaotong/Documents/class_system/backend-go/internal/repository/repository.go:1)
+- 如果要改统计或导出逻辑，优先看 [backend-go/internal/service/service.go](/Users/fuhaotong/Documents/class_system/backend-go/internal/service/service.go:1)
+- 如果要改数据模型，优先看 [backend-go/internal/models/models.go](/Users/fuhaotong/Documents/class_system/backend-go/internal/models/models.go:1)
 
 ## 10. 常见维护操作
 
@@ -216,19 +227,23 @@ kill <PID>
 优先检查：
 
 - 第二部分题型是否新增了字段但导出逻辑没同步
-- [backend-go/cmd/server/main.go](/Users/fuhaotong/Documents/class_system/backend-go/cmd/server/main.go:896) 附近的导出逻辑
+- [backend-go/internal/service/service.go](/Users/fuhaotong/Documents/class_system/backend-go/internal/service/service.go:1)（BuildExportRow、BuildStats）
 - 统计逻辑是否和 `part2_answer` 的 JSON 结构兼容
 
-## 11. PM2 与旧后端说明
+## 11. PM2 部署说明
 
-仓库里还有一个 [ecosystem.config.js](/Users/fuhaotong/Documents/class_system/ecosystem.config.js:1)，但它当前指向的是旧的 Node 后端：
+[ecosystem.config.js](/Users/fuhaotong/Documents/class_system/ecosystem.config.js:1) 已更新为启动 Go 后端编译后的二进制：
 
-- `script: 'backend/server.js'`
+- `script: 'backend-go/server'`
 
-这意味着：
+使用 PM2 前需要先构建：
 
-- 如果直接跑 `npm run pm2:start`，默认拉起的不是 Go 后端
-- 如果后续要长期部署当前版本，建议把 PM2 配置改为启动 Go 可执行文件或 Go 启动命令
+```bash
+npm run backend:build
+npm run pm2:start
+```
+
+构建产物 `backend-go/server` 是一个独立的可执行文件，不依赖本地 Go 环境即可运行。
 
 ## 12. 交接给 Claude Code 的建议提示词
 
@@ -237,18 +252,22 @@ kill <PID>
 ```text
 请先阅读 README.md 和 架构文档.md，理解当前项目结构。
 当前主链路是 frontend/ + backend-go/，不要默认使用 backend/ 旧 Node 后端。
+Go 后端已拆分为 models / utils / middleware / migrations / repository / service / handler。
 先检查 3000 和 8080 端口，再分别启动前端和 Go 后端。
 运行后验证 /healthz、教师端课程接口、学生端第二部分题目接口。
 如要改功能：
 1. 前端行为看 frontend/js/student.js 或 frontend/js/teacher.js
-2. API 和数据结构看 backend-go/cmd/server/main.go
-3. 涉及数据库结构时，注意兼容已有 quiz-system.db
-4. 不要随意重置数据库
+2. HTTP 接口和参数校验看 backend-go/internal/handler/handler.go
+3. 数据库查询看 backend-go/internal/repository/repository.go
+4. 统计/导出/Part2 业务逻辑看 backend-go/internal/service/service.go
+5. 数据模型看 backend-go/internal/models/models.go
+6. 涉及数据库结构时，注意兼容已有 quiz-system.db
+7. 不要随意重置数据库
 ```
 
 ## 13. 后续建议
 
-- 把 `ecosystem.config.js` 更新到 Go 部署链路
-- 把 Go 后端拆分出 `handlers / service / repository`，降低 `main.go` 复杂度
+- ~~把 `ecosystem.config.js` 更新到 Go 部署链路~~（已完成）
+- ~~把 Go 后端拆分出 `handlers / service / repository`~~（已完成）
 - 为第二部分富文本标注、统计导出、阶段切换补最小回归测试
 - 为数据库迁移建立显式版本管理，而不是继续把迁移逻辑全部堆在启动流程里
