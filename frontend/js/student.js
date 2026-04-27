@@ -1701,9 +1701,11 @@ async function submitPart4() {
         }
       };
       
-      // 锁定第四部分
+      // 锁定并隐藏第四部分，再显示完成页面，避免重叠闪烁
       lockPart(4);
-      
+      const part4El = document.getElementById('part4');
+      if (part4El) part4El.classList.add('hidden');
+
       // 显示完成页面
       document.getElementById('completed-page').classList.remove('hidden');
     } else {
