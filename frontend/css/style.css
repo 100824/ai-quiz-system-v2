@@ -689,8 +689,8 @@ header h1 {
   background: rgba(255, 255, 255, 0.9);
   border: 1px dashed rgba(59, 130, 246, 0.22);
   color: #4a5e72;
-  font-size: 56px;
-  line-height: 1.5;
+  font-size: 36px;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
 }
