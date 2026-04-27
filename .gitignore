@@ -26,7 +26,6 @@ xiaohongshu-data/
 node_modules/
 
 # Data
-data/
 backend-go/data/*.db-wal
 backend-go/data/*.db-shm
 backend-go/data/*.bak*
@@ -49,3 +48,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Temp / cache
+.cache/
+.kimi/
+.kimi-home/
