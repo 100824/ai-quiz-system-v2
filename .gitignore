@@ -26,11 +26,6 @@ xiaohongshu-data/
 node_modules/
 
 # Data
-backend-go/data/*.db-wal
-backend-go/data/*.db-shm
-backend-go/data/*.bak*
-!backend-go/data/
-!backend-go/data/quiz-system.db
 
 # Logs
 logs/
