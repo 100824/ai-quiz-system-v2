@@ -26,6 +26,9 @@ xiaohongshu-data/
 node_modules/
 
 # Data
+data/
+backend-go/data/*.db-wal
+backend-go/data/*.db-shm
 
 # Logs
 logs/
