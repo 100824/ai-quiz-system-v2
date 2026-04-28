@@ -431,6 +431,52 @@ function renderSummary(items) {
   `;
 }
 
+function renderScoreCompare(items) {
+  const compareItems = items.filter((item) => item.part1_answers && item.part3_score !== null && item.part3_score !== undefined);
+  if (compareItems.length === 0) {
+    return '';
+  }
+
+  const rowsHtml = compareItems.map((item) => {
+    const predicted = Number(item.part1_answers?.predictionScore ?? 0);
+    const actual = Number(item.part3_score ?? 0);
+    const diff = actual - predicted;
+    let diffText = '';
+    let diffClass = '';
+    if (diff > 0) {
+      diffText = `+${diff} 偏低`;
+      diffClass = 'history-score-diff--high';
+    } else if (diff < 0) {
+      diffText = `${diff} 偏高`;
+      diffClass = 'history-score-diff--low';
+    } else {
+      diffText = '0 猜中';
+      diffClass = 'history-score-diff--equal';
+    }
+    return `
+      <div class="history-score-row">
+        <div class="history-score-course">第${item.lesson_number}课</div>
+        <div class="history-score-predicted">
+          <span class="history-score-label">预测</span>
+          <strong>${predicted}分</strong>
+        </div>
+        <div class="history-score-actual">
+          <span class="history-score-label">实际</span>
+          <strong>${actual}分</strong>
+        </div>
+        <div class="history-score-diff ${diffClass}">${diffText}</div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <h3 class="history-score-compare__title">📊 历史与预测分数对比</h3>
+    <div class="history-score-list">
+      ${rowsHtml}
+    </div>
+  `;
+}
+
 async function safeFetchJson(response) {
   const text = await response.text();
   if (!text) throw new Error('服务器返回空响应');
@@ -491,6 +537,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const summary = document.getElementById('history-summary');
     summary.innerHTML = renderSummary(items);
     summary.classList.remove('hidden');
+
+    const scoreCompareHtml = renderScoreCompare(items);
+    const scoreCompareEl = document.getElementById('history-score-compare');
+    if (scoreCompareHtml) {
+      scoreCompareEl.innerHTML = scoreCompareHtml;
+      scoreCompareEl.classList.remove('hidden');
+    }
 
     document.getElementById('history-list').innerHTML = items.map((item) => renderHistoryItem(item, questionMap)).join('');
   } catch (error) {
