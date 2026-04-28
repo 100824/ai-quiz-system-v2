@@ -1428,24 +1428,24 @@ header h1 {
 .history-summary__label {
   margin: 0 0 4px 0;
   color: #6a8db5;
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .history-summary__item--wide .history-summary__label {
   white-space: nowrap;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .history-summary__value {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1.2;
   color: #0f172a;
 }
 
 .history-summary__value--stack {
   white-space: nowrap;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1.3;
 }
 
