@@ -1692,11 +1692,12 @@ header h1 {
   margin-bottom: 20px;
 }
 
-.history-score-compare__title {
+.card .history-score-compare__title {
   margin: 0 0 16px 0;
   font-size: 36px;
   color: #4a6fa5;
   font-weight: 700;
+  text-align: left;
 }
 
 .history-score-list {
