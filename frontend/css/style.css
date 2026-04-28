@@ -1708,7 +1708,7 @@ header h1 {
 
 .history-score-row {
   display: grid;
-  grid-template-columns: 100px 1fr 1fr 100px;
+  grid-template-columns: 100px 1fr 1fr 100px 36px;
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
@@ -1716,6 +1716,7 @@ header h1 {
   background: #ffffff;
   border: 2px solid rgba(59, 130, 246, 0.12);
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.06);
+  cursor: pointer;
 }
 
 .history-score-course {
@@ -1767,9 +1768,35 @@ header h1 {
   color: #c62828;
 }
 
+.history-score-toggle {
+  font-size: 14px;
+  color: #6a8db5;
+  text-align: center;
+  transition: transform 0.25s ease;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-detail-panel {
+  padding: 0 4px;
+}
+
+.history-detail-panel:not(.hidden) {
+  padding-top: 16px;
+  padding-bottom: 8px;
+}
+
+.history-detail-panel .history-course-card {
+  margin-bottom: 0;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.08);
+}
+
 @media (max-width: 900px) {
   .history-score-row {
-    grid-template-columns: 80px 1fr 1fr 90px;
+    grid-template-columns: 80px 1fr 1fr 90px 32px;
     gap: 8px;
     padding: 12px 14px;
   }
@@ -1782,15 +1809,29 @@ header h1 {
 
 @media (max-width: 640px) {
   .history-score-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr auto;
     gap: 10px;
     padding: 14px;
   }
 
   .history-score-course {
-    grid-column: span 2;
-    text-align: center;
+    grid-column: 1;
+    text-align: left;
     font-size: 16px;
+  }
+
+  .history-score-toggle {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  .history-score-predicted {
+    grid-column: 1;
+  }
+
+  .history-score-actual {
+    grid-column: 2;
   }
 
   .history-score-diff {

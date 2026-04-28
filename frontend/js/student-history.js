@@ -454,7 +454,7 @@ function renderScoreCompare(items) {
       diffClass = 'history-score-diff--equal';
     }
     return `
-      <div class="history-score-row">
+      <div class="history-score-row" data-lesson-number="${item.lesson_number}" role="button" tabindex="0" aria-expanded="false">
         <div class="history-score-course">第${item.lesson_number}课</div>
         <div class="history-score-predicted">
           <span class="history-score-label">预测</span>
@@ -465,7 +465,9 @@ function renderScoreCompare(items) {
           <strong>${actual}分</strong>
         </div>
         <div class="history-score-diff ${diffClass}">${diffText}</div>
+        <div class="history-score-toggle">▼</div>
       </div>
+      <div class="history-detail-panel hidden" data-lesson-number="${item.lesson_number}"></div>
     `;
   }).join('');
 
@@ -545,7 +547,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       scoreCompareEl.classList.remove('hidden');
     }
 
-    document.getElementById('history-list').innerHTML = items.map((item) => renderHistoryItem(item, questionMap)).join('');
+    // 预生成课程详情HTML，供折叠面板展开时注入
+    const itemHtmlMap = new Map();
+    items.forEach((item) => {
+      itemHtmlMap.set(String(item.lesson_number), renderHistoryItem(item, questionMap));
+    });
+
+    // 隐藏原始课程列表，改为通过分数对比行点击展开
+    document.getElementById('history-list').classList.add('hidden');
+
+    // 绑定分数对比行的点击展开/折叠事件
+    scoreCompareEl.querySelectorAll('.history-score-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const lessonNumber = row.getAttribute('data-lesson-number');
+        const panel = scoreCompareEl.querySelector(`.history-detail-panel[data-lesson-number="${lessonNumber}"]`);
+        const toggle = row.querySelector('.history-score-toggle');
+        const isExpanded = row.getAttribute('aria-expanded') === 'true';
+
+        if (!panel) return;
+
+        if (isExpanded) {
+          panel.classList.add('hidden');
+          row.setAttribute('aria-expanded', 'false');
+          if (toggle) toggle.style.transform = 'rotate(0deg)';
+        } else {
+          if (!panel.innerHTML.trim()) {
+            panel.innerHTML = itemHtmlMap.get(lessonNumber) || '<p class="history-empty-part">未找到该课程数据。</p>';
+          }
+          panel.classList.remove('hidden');
+          row.setAttribute('aria-expanded', 'true');
+          if (toggle) toggle.style.transform = 'rotate(180deg)';
+        }
+      });
+    });
   } catch (error) {
     document.getElementById('history-loading').classList.add('hidden');
     document.getElementById('history-empty').classList.remove('hidden');
