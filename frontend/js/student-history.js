@@ -470,7 +470,7 @@ function renderScoreCompare(items) {
   }).join('');
 
   return `
-    <h3 class="history-score-compare__title">📊 历史与预测分数对比</h3>
+    <h3 class="history-score-compare__title">历史与预测分数对比</h3>
     <div class="history-score-list">
       ${rowsHtml}
     </div>
