@@ -1118,48 +1118,181 @@ function generatePart4Content() {
   const container = document.getElementById('part4-content');
   if (!container) return;
 
+  // 计算对比结果
+  let reflection = '';
+  let feedbackText = '';
+  let feedbackClass = '';
+  const hasQuizScore = part3Score !== null && part3Score !== undefined;
+  const hasPrediction = predictionScore !== null && predictionScore !== undefined;
+
+  if (hasQuizScore && hasPrediction) {
+    if (part3Score === predictionScore) {
+      reflection = 'equal';
+      feedbackText = '你猜得很准，说明你很了解自己！';
+      feedbackClass = 'success';
+    } else if (part3Score < predictionScore) {
+      reflection = 'low';
+      feedbackText = '你猜高了，可能有些地方没听懂哦。';
+      feedbackClass = 'warning';
+    } else {
+      reflection = 'high';
+      feedbackText = '你猜低了，其实你比想象中厉害！';
+      feedbackClass = 'success';
+    }
+  } else {
+    reflection = 'generic';
+    feedbackText = '这一部分已切换为通用课后反思，请根据本节课的学习情况完成总结。';
+    feedbackClass = 'success';
+  }
+
   let html = `
-    <h3 style="margin-top: 10px;">1. 这节课哪些做法对你最有帮助？（可以多选）</h3>
-    <div class="options" id="part4-q2">
-      <div class="option">
-        <input type="checkbox" id="p4-q2-1" value="认真听老师讲课">
-        <label for="p4-q2-1">A. 认真听老师讲课</label>
+    <h3>1. 我的学习成果 📊</h3>
+    <div class="score-compare">
+      <div class="score-item">
+        <div class="label">小测得分</div>
+        <div class="value">${hasQuizScore ? part3Score : '未开启'}</div>
       </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-2" value="认真看学习材料">
-        <label for="p4-q2-2">B. 认真看学习材料</label>
-      </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-3" value="边学边做笔记">
-        <label for="p4-q2-3">C. 边学边做笔记</label>
-      </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-4" value="上网查资料">
-        <label for="p4-q2-4">D. 上网查资料</label>
-      </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-5" value="请教老师或同学">
-        <label for="p4-q2-5">E. 请教老师或同学</label>
-      </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-6" value="多做练习题">
-        <label for="p4-q2-6">F. 多做练习题</label>
-      </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-7" value="和同学一起讨论">
-        <label for="p4-q2-7">G. 和同学一起讨论</label>
-      </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-8" value="课后复习">
-        <label for="p4-q2-8">H. 课后复习</label>
-      </div>
-      <div class="option">
-        <input type="checkbox" id="p4-q2-custom-check">
-        <label for="p4-q2-custom-check">I. 其他：</label>
-        <input type="text" id="p4-q2-custom" placeholder="请写下你的方法..." style="margin-left: 10px; flex: 1;">
+      <div class="score-item">
+        <div class="label">预测分数</div>
+        <div class="value">${hasPrediction ? predictionScore : '未填写'}</div>
       </div>
     </div>
+    <div class="feedback ${feedbackClass}">
+      ${feedbackText}
+    </div>
   `;
+
+  // 第二题根据结果显示
+  if (reflection === 'equal' || reflection === 'high') {
+    html += `
+      <h3 style="margin-top: 25px;">2. 你觉得你用到了哪些方法，帮你学得这么好？（可以多选）</h3>
+      <div class="options" id="part4-q2">
+        <div class="option">
+          <input type="checkbox" id="p4-q2-1" value="认真听老师讲课">
+          <label for="p4-q2-1">A. 认真听老师讲课</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-2" value="认真看学习材料">
+          <label for="p4-q2-2">B. 认真看学习材料</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-3" value="边学边做笔记">
+          <label for="p4-q2-3">C. 边学边做笔记</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-4" value="上网查资料">
+          <label for="p4-q2-4">D. 上网查资料</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-5" value="请教老师或同学">
+          <label for="p4-q2-5">E. 请教老师或同学</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-6" value="多做练习题">
+          <label for="p4-q2-6">F. 多做练习题</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-7" value="和同学一起讨论">
+          <label for="p4-q2-7">G. 和同学一起讨论</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-8" value="课后复习">
+          <label for="p4-q2-8">H. 课后复习</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-custom-check">
+          <label for="p4-q2-custom-check">I. 其他：</label>
+          <input type="text" id="p4-q2-custom" placeholder="请写下你的方法..." style="margin-left: 10px; flex: 1;">
+        </div>
+      </div>
+    `;
+  } else if (reflection === 'low') {
+    html += `
+      <h3 style="margin-top: 25px;">2. 你觉得是什么原因，让你没有达到学习目标？（可以多选）</h3>
+      <div class="options" id="part4-q2">
+        <div class="option">
+          <input type="checkbox" id="p4-q2-1" value="有些地方没听懂">
+          <label for="p4-q2-1">A. 有些地方没听懂</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-2" value="上课走神了">
+          <label for="p4-q2-2">B. 上课走神了</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-3" value="没有认真看学习材料">
+          <label for="p4-q2-3">C. 没有认真看学习材料</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-4" value="没有做笔记">
+          <label for="p4-q2-4">D. 没有做笔记</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-5" value="遇到问题没有及时问">
+          <label for="p4-q2-5">E. 遇到问题没有及时问</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-6" value="练习不够">
+          <label for="p4-q2-6">F. 练习不够</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-7" value="课后没有复习">
+          <label for="p4-q2-7">G. 课后没有复习</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-8" value="计划的方法没用上">
+          <label for="p4-q2-8">H. 计划的方法没用上</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-custom-check">
+          <label for="p4-q2-custom-check">I. 其他：</label>
+          <input type="text" id="p4-q2-custom" placeholder="请写下原因..." style="margin-left: 10px; flex: 1;">
+        </div>
+      </div>
+    `;
+  } else {
+    html += `
+      <h3 style="margin-top: 25px;">2. 这节课哪些做法对你最有帮助？（可以多选）</h3>
+      <div class="options" id="part4-q2">
+        <div class="option">
+          <input type="checkbox" id="p4-q2-1" value="认真听老师讲课">
+          <label for="p4-q2-1">A. 认真听老师讲课</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-2" value="认真看学习材料">
+          <label for="p4-q2-2">B. 认真看学习材料</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-3" value="边学边做笔记">
+          <label for="p4-q2-3">C. 边学边做笔记</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-4" value="上网查资料">
+          <label for="p4-q2-4">D. 上网查资料</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-5" value="请教老师或同学">
+          <label for="p4-q2-5">E. 请教老师或同学</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-6" value="多做练习题">
+          <label for="p4-q2-6">F. 多做练习题</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-7" value="和同学一起讨论">
+          <label for="p4-q2-7">G. 和同学一起讨论</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-8" value="课后复习">
+          <label for="p4-q2-8">H. 课后复习</label>
+        </div>
+        <div class="option">
+          <input type="checkbox" id="p4-q2-custom-check">
+          <label for="p4-q2-custom-check">I. 其他：</label>
+          <input type="text" id="p4-q2-custom" placeholder="请写下你的方法..." style="margin-left: 10px; flex: 1;">
+        </div>
+      </div>
+    `;
+  }
 
   // 第三题
   html += `
@@ -1196,9 +1329,9 @@ function generatePart4Content() {
       </div>
     </div>
   `;
-  
+
   container.innerHTML = html;
-  
+
   // 绑定所有选项点击事件（单选/多选通用）
   bindOptionClickEvents();
 }
