@@ -636,18 +636,18 @@ header h1 {
 
 .student-survey-main {
   min-width: 0;
-  margin-left: 316px;
+  margin-left: 292px;
 }
 
 .student-progress-card {
   position: fixed;
   top: 128px;
   left: max(16px, calc((100vw - 1320px) / 2 + 20px));
-  width: 280px;
+  width: 256px;
   max-height: calc(100vh - 160px);
   overflow: auto;
   z-index: 1200;
-  padding: 22px 18px 18px;
+  padding: 20px 16px 16px;
   background:
     radial-gradient(circle at top right, rgba(139, 184, 232, 0.26), transparent 34%),
     radial-gradient(circle at bottom left, rgba(88, 166, 255, 0.12), transparent 38%),
