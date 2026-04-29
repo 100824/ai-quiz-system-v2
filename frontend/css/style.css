@@ -629,6 +629,160 @@ header h1 {
   font-size: 22px;
 }
 
+.student-survey-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.student-survey-main {
+  min-width: 0;
+}
+
+.student-progress-card {
+  position: sticky;
+  top: 112px;
+  padding: 24px 22px;
+  background:
+    radial-gradient(circle at top right, rgba(139, 184, 232, 0.2), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 249, 255, 0.96));
+  border: 1px solid rgba(59, 130, 246, 0.16);
+  box-shadow: 0 24px 50px rgba(59, 130, 246, 0.14);
+}
+
+.student-progress-card__head {
+  margin-bottom: 18px;
+}
+
+.student-pill--progress {
+  min-height: 34px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.student-progress-card__head h3 {
+  margin: 0 0 8px 0;
+  text-align: left;
+  color: #4a6fa5;
+  font-size: 24px;
+}
+
+.student-progress-card__head p {
+  margin: 0;
+  color: #6a8db5;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.student-progress-meter {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.student-progress-meter__fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7fb4f3 0%, #3B82F6 55%, #34C759 100%);
+  transition: width 0.35s ease;
+}
+
+.student-progress-count {
+  margin: 0 0 18px 0;
+  color: #4a6fa5;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.student-progress-list {
+  display: grid;
+  gap: 12px;
+}
+
+.student-progress-item {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px 14px 14px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(59, 130, 246, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.student-progress-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(59, 130, 246, 0.1);
+}
+
+.student-progress-item__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #edf4fb;
+  color: #5b7fa7;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.student-progress-item__title {
+  margin: 0 0 4px 0;
+  color: #4a6fa5;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.student-progress-item__meta {
+  margin: 0;
+  color: #7a94b2;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.student-progress-item--done {
+  border-color: rgba(52, 199, 89, 0.22);
+  background: linear-gradient(180deg, #f1fbf4 0%, #e8f7ee 100%);
+}
+
+.student-progress-item--done .student-progress-item__icon {
+  background: #dcf7e5;
+  color: #15803d;
+}
+
+.student-progress-item--active {
+  border-color: rgba(59, 130, 246, 0.28);
+  background: linear-gradient(180deg, #eef6ff 0%, #e7f1ff 100%);
+  box-shadow: 0 12px 26px rgba(59, 130, 246, 0.14);
+}
+
+.student-progress-item--active .student-progress-item__icon {
+  background: #d9ebff;
+  color: #2563eb;
+}
+
+.student-progress-item--waiting {
+  border-color: rgba(240, 192, 64, 0.24);
+  background: linear-gradient(180deg, #fff9ec 0%, #fff5de 100%);
+}
+
+.student-progress-item--waiting .student-progress-item__icon {
+  background: #fff0bf;
+  color: #b7791f;
+}
+
+.student-progress-item--pending .student-progress-item__icon {
+  background: #eef3f8;
+  color: #7f94ab;
+}
+
 .student-part-card {
   background:
     radial-gradient(circle at top right, rgba(139, 184, 232, 0.18), transparent 28%),
@@ -1987,6 +2141,20 @@ header h1 {
 @media (max-width: 768px) {
   .student-page .container.student-shell {
     padding-top: 24px;
+  }
+
+  .student-survey-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .student-progress-card {
+    position: static;
+    top: auto;
+    padding: 20px 18px;
+  }
+
+  .student-progress-list {
+    grid-template-columns: 1fr;
   }
 
   .student-page #course-title {

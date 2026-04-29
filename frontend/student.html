@@ -48,12 +48,26 @@
     </div>
     
     <!-- 问卷页面 -->
-    <div id="survey-page" class="hidden">
-      <div class="card student-stage-banner" style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, rgba(232,242,252,0.98), rgba(218,234,248,0.94));">
-        <h3 style="margin: 0; text-align: center;">当前是：<span id="lesson-name">第1节课</span></h3>
-      </div>
+    <div id="survey-page" class="hidden student-survey-layout">
+      <aside class="card student-progress-card">
+        <div class="student-progress-card__head">
+          <span class="student-pill student-pill--progress">答题进度</span>
+          <h3>我的课堂进度</h3>
+          <p id="student-progress-summary">正在等待课堂开始</p>
+        </div>
+        <div class="student-progress-meter" aria-hidden="true">
+          <div id="student-progress-meter-fill" class="student-progress-meter__fill"></div>
+        </div>
+        <p id="student-progress-count" class="student-progress-count">已完成 0 / 5</p>
+        <div id="student-progress-list" class="student-progress-list"></div>
+      </aside>
 
-      <div id="prep-stage" class="card student-part-card hidden">
+      <div class="student-survey-main">
+        <div class="card student-stage-banner" style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, rgba(232,242,252,0.98), rgba(218,234,248,0.94));">
+          <h3 style="margin: 0; text-align: center;">当前是：<span id="lesson-name">第1节课</span></h3>
+        </div>
+
+        <div id="prep-stage" class="card student-part-card hidden">
         <h2>🚀 准备环节</h2>
         <p class="student-section-intro">你已经完成登录，请先查看课堂提示，等待老师正式开启课堂。</p>
         <div class="student-prep-tip-card">
@@ -162,6 +176,7 @@
         <div class="btn-group" style="margin-top: 20px;">
           <button class="btn btn-primary" onclick="openHistoryPage()">查看我的历史课堂答题数据</button>
         </div>
+      </div>
       </div>
     </div>
     

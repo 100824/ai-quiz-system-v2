@@ -1050,6 +1050,101 @@ function lockPart(part) {
   if (btnEl) btnEl.classList.add('hidden');
 }
 
+function renderStudentProgress(partSubmittedMap, currentStudentStage) {
+  const progressList = document.getElementById('student-progress-list');
+  const progressSummary = document.getElementById('student-progress-summary');
+  const progressCount = document.getElementById('student-progress-count');
+  const progressFill = document.getElementById('student-progress-meter-fill');
+  if (!progressList || !progressSummary || !progressCount || !progressFill) return;
+
+  const prepCompleted = Number(currentStage) > 0 || partSubmittedMap[1] || partSubmittedMap[2] || partSubmittedMap[3] || partSubmittedMap[4];
+  const progressItems = [
+    {
+      key: 'prep',
+      title: '准备环节',
+      done: prepCompleted,
+      active: !prepCompleted,
+      waiting: false,
+      meta: prepCompleted ? '老师已开启课堂，可以开始闯关。' : '已登录，等待老师正式开启课堂。'
+    },
+    {
+      key: 1,
+      title: '第一部分',
+      done: !!partSubmittedMap[1],
+      active: currentStudentStage === 1 && Number(currentStage) >= 1,
+      waiting: currentStudentStage === 1 && Number(currentStage) < 1,
+      meta: partSubmittedMap[1] ? '已完成热身与学习计划。' : (Number(currentStage) >= 1 ? '当前可作答。' : '尚未开放。')
+    },
+    {
+      key: 2,
+      title: '第二部分',
+      done: !!partSubmittedMap[2],
+      active: currentStudentStage === 2 && Number(currentStage) >= 2,
+      waiting: currentStudentStage === 2 && Number(currentStage) < 2,
+      meta: partSubmittedMap[2] ? '已完成思考与讨论。' : (Number(currentStage) >= 2 ? '当前可作答。' : '等待老师开启。')
+    },
+    {
+      key: 3,
+      title: '第三部分',
+      done: !!partSubmittedMap[3],
+      active: currentStudentStage === 3 && Number(currentStage) >= 3,
+      waiting: currentStudentStage === 3 && Number(currentStage) < 3,
+      meta: partSubmittedMap[3] ? '已完成小测验。' : (Number(currentStage) >= 3 ? '当前可作答。' : '等待老师开启。')
+    },
+    {
+      key: 4,
+      title: '第四部分',
+      done: !!partSubmittedMap[4],
+      active: currentStudentStage === 4 && Number(currentStage) >= 4,
+      waiting: currentStudentStage === 4 && Number(currentStage) < 4,
+      meta: partSubmittedMap[4] ? '已完成课后反思。' : (Number(currentStage) >= 4 ? '当前可作答。' : '等待老师开启。')
+    }
+  ];
+
+  const completedCount = progressItems.filter((item) => item.done).length;
+  const totalCount = progressItems.length;
+  const progressPercent = Math.round((completedCount / totalCount) * 100);
+
+  let summaryText = '正在等待课堂开始';
+  if (partSubmittedMap[4]) {
+    summaryText = '你已完成本节课全部任务。';
+  } else {
+    const activeItem = progressItems.find((item) => item.active);
+    const waitingItem = progressItems.find((item) => item.waiting);
+    if (activeItem) {
+      summaryText = `当前进行中：${activeItem.title}`;
+    } else if (waitingItem) {
+      summaryText = `已完成当前开放内容，等待${waitingItem.title}开启`;
+    } else if (prepCompleted) {
+      summaryText = '课堂已开启，准备继续闯关。';
+    }
+  }
+
+  progressSummary.textContent = summaryText;
+  progressCount.textContent = `已完成 ${completedCount} / ${totalCount}`;
+  progressFill.style.width = `${progressPercent}%`;
+
+  progressList.innerHTML = progressItems.map((item) => {
+    const statusClass = item.done
+      ? 'student-progress-item--done'
+      : item.active
+        ? 'student-progress-item--active'
+        : item.waiting
+          ? 'student-progress-item--waiting'
+          : 'student-progress-item--pending';
+    const icon = item.done ? '✓' : item.active ? '▶' : item.waiting ? '…' : '○';
+    return `
+      <div class="student-progress-item ${statusClass}">
+        <div class="student-progress-item__icon">${icon}</div>
+        <div class="student-progress-item__body">
+          <p class="student-progress-item__title">${item.title}</p>
+          <p class="student-progress-item__meta">${item.meta}</p>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 // 更新UI
 function updateUI() {
   // 隐藏所有部分
@@ -1098,6 +1193,7 @@ function updateUI() {
   }
   
   const currentStudentStage = getNextRequiredPart(partSubmittedMap);
+  renderStudentProgress(partSubmittedMap, currentStudentStage);
   if (currentStudentStage === null) {
     document.getElementById('completed-page').classList.remove('hidden');
     return;
