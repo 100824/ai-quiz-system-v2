@@ -1190,6 +1190,8 @@ function updateUI() {
   };
 
   updateHistoryEntryVisibility();
+  const currentStudentStage = getNextRequiredPart(partSubmittedMap);
+  renderStudentProgress(partSubmittedMap, currentStudentStage);
   
   if (part4Submitted) {
     document.getElementById('completed-page').classList.remove('hidden');
@@ -1207,9 +1209,7 @@ function updateUI() {
     document.getElementById('part3').classList.remove('hidden');
     document.getElementById('part3-results').classList.remove('hidden');
   }
-  
-  const currentStudentStage = getNextRequiredPart(partSubmittedMap);
-  renderStudentProgress(partSubmittedMap, currentStudentStage);
+
   if (currentStudentStage === null) {
     document.getElementById('completed-page').classList.remove('hidden');
     return;
