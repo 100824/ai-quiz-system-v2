@@ -574,7 +574,7 @@ func (h *Handler) HandleStudentStatus(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	if len(survey.Part3) > 0 {
+	if survey != nil && len(survey.Part3) > 0 {
 		var answers map[string]string
 		if err := json.Unmarshal(survey.Part3, &answers); err == nil {
 			results, score, err := h.buildPart3Results(courseID, answers)

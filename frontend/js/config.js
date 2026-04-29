@@ -1,13 +1,21 @@
 (function initAppConfig() {
   const params = new URLSearchParams(window.location.search);
   const queryApiBase = params.get('apiBase');
-  const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8080/api`;
+  const isHttpProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+  const hasHostname = Boolean(window.location.hostname);
+  const defaultApiBase = isHttpProtocol && hasHostname
+    ? `${window.location.protocol}//${window.location.hostname}:8080/api`
+    : 'http://127.0.0.1:8080/api';
   let storedApiBase = null;
 
   try {
     storedApiBase = window.localStorage.getItem('quiz-api-base');
   } catch (error) {
     console.warn('读取本地 API 配置失败，将使用默认后端地址。', error);
+  }
+
+  if (storedApiBase && !/^https?:\/\//i.test(storedApiBase)) {
+    storedApiBase = null;
   }
 
   const apiBase = (queryApiBase || storedApiBase || defaultApiBase).replace(/\/$/, '');
