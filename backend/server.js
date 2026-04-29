@@ -4,13 +4,12 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const logger = require('./logger');
-const { initDatabase, getAllCourses, getCurrentCourseId, setCurrentCourseId, getClassList, importClassList, validateStudent, getAllClasses, getCurrentStage, setCurrentStage, getQuestionsByPart, updateQuestion, saveStudentPart1, saveStudentPart2, saveStudentPart3, saveStudentPart4, getStudentSurvey, getPartCompletionStats, getQuestionStats, getAllStudentSurveys, getClassBoundCourse, setClassBoundCourse, getStudentHistoryScores, getPart2Guide, updatePart2Guide } = require('./database');
+const { initDatabase, getAllCourses, getCurrentCourseId, setCurrentCourseId, getClassList, importClassList, validateStudent, getAllClasses, getCurrentStage, setCurrentStage, getQuestionsByPart, updateQuestion, saveStudentPart1, saveStudentPart2, saveStudentPart3, saveStudentPart4, getStudentSurvey, getPartCompletionStats, getQuestionStats, getAllStudentSurveys, getClassBoundCourse, setClassBoundCourse, getStudentHistoryScores, getPart2Guide, updatePart2Guide, getClassTip, saveClassTip } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// 存储课堂提示语，key格式: `${courseId}_${className}`
-const tips = {};
+// 课堂提示语已持久化到数据库 class_tips 表
 
 // 中间件
 app.use(cors());
@@ -142,14 +141,22 @@ app.post('/api/teacher/tip', (req, res) => {
   try {
     const { className, content } = req.body;
     // 只用班级名作为key，一个班级同一时间只上一个课，避免课程ID不匹配问题
-    const key = className;
-    tips[key] = {
-      content,
-      updatedAt: Date.now()
-    };
+    saveClassTip(className, content || '');
     res.json({ success: true, message: '提示语提交成功' });
   } catch (error) {
     logger.error('提交提示语失败:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取课堂提示语（教师端）
+app.get('/api/teacher/tip', (req, res) => {
+  try {
+    const { className } = req.query;
+    const content = getClassTip(className);
+    res.json({ success: true, data: { content } });
+  } catch (error) {
+    logger.error('获取教师端提示语失败:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -425,10 +432,8 @@ app.post('/api/student/validate', (req, res) => {
 app.get('/api/student/tip', (req, res) => {
   try {
     const { className } = req.query;
-    // 只用班级名作为key，一个班级同一时间只上一个课，避免课程ID不匹配问题
-    const key = className;
-    const tip = tips[key] || null;
-    res.json({ success: true, data: tip ? { content: tip.content } : {} });
+    const content = getClassTip(className);
+    res.json({ success: true, data: { content } });
   } catch (error) {
     logger.error('获取提示语失败:', error);
     res.status(500).json({ success: false, error: error.message });

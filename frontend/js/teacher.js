@@ -956,6 +956,20 @@ async function loadCurrentStage() {
       console.error('加载当前阶段失败:', error);
     }
 
+    // 加载课堂提示语
+    try {
+      const tipRes = await fetch(`${API_BASE}/teacher/tip?className=${encodeURIComponent(className)}`);
+      const tipData = await safeFetchJson(tipRes);
+      if (tipData.success) {
+        const tipInput = document.getElementById('tipInput');
+        if (tipInput) {
+          tipInput.innerHTML = tipData.data.content || '';
+        }
+      }
+    } catch (error) {
+      console.error('加载课堂提示语失败:', error);
+    }
+
     // 加载完成情况统计
     try {
       // 加载统计数据

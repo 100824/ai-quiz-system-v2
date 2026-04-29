@@ -94,6 +94,16 @@ function initDatabase() {
       )
     `);
 
+    // 5. 课堂提示语表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS class_tips (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_name TEXT NOT NULL UNIQUE,
+        content TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // 4. 题目表：存储每个课程每个部分的自定义题目
     db.exec(`
       CREATE TABLE IF NOT EXISTS questions (
@@ -320,6 +330,15 @@ const dbOps = {
   setClassBoundCourse: (className, courseId) => db.prepare(
     'REPLACE INTO class_course_bind (class_name, course_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)'
   ).run(className, courseId),
+
+  // 课堂提示语
+  getClassTip: (className) => {
+    const res = db.prepare('SELECT content FROM class_tips WHERE class_name = ?').get(className);
+    return res ? res.content : '';
+  },
+  saveClassTip: (className, content) => db.prepare(
+    'REPLACE INTO class_tips (class_name, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)'
+  ).run(className, content),
 
   // 题目相关
   getQuestionsByPart: (courseId, part) => db.prepare(
