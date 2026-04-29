@@ -113,6 +113,12 @@ func InitDB(db *sql.DB) error {
 			UNIQUE(course_id, part),
 			FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS class_tips (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			class_name TEXT NOT NULL UNIQUE,
+			content TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {

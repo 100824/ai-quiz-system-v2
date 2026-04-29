@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"ai-quiz-system-v2/backend-go/internal/models"
@@ -22,13 +21,6 @@ import (
 type Handler struct {
 	repo *repository.Repository
 	svc  *service.Service
-	tips *TipStore
-}
-
-// TipStore holds in-memory class tips.
-type TipStore struct {
-	mu   sync.RWMutex
-	data map[string]models.TipPayload
 }
 
 // NewHandler creates a Handler.
@@ -36,7 +28,6 @@ func NewHandler(repo *repository.Repository, svc *service.Service) *Handler {
 	return &Handler{
 		repo: repo,
 		svc:  svc,
-		tips: &TipStore{data: make(map[string]models.TipPayload)},
 	}
 }
 
@@ -310,7 +301,7 @@ func (h *Handler) HandleBindClassCourse(w http.ResponseWriter, r *http.Request) 
 	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Message: "班级课程绑定成功"})
 }
 
-// HandleTeacherTip stores a class tip in memory.
+// HandleTeacherTip stores a class tip in SQLite.
 func (h *Handler) HandleTeacherTip(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ClassName string `json:"className"`
@@ -320,10 +311,22 @@ func (h *Handler) HandleTeacherTip(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: err.Error()})
 		return
 	}
-	h.tips.mu.Lock()
-	h.tips.data[body.ClassName] = models.TipPayload{Content: body.Content, UpdatedAt: time.Now().UnixMilli()}
-	h.tips.mu.Unlock()
+	if err := h.repo.SetClassTip(body.ClassName, body.Content); err != nil {
+		h.writeError(w, err)
+		return
+	}
 	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Message: "提示语提交成功"})
+}
+
+// HandleGetTeacherTip returns the persisted class tip for teacher-side refresh.
+func (h *Handler) HandleGetTeacherTip(w http.ResponseWriter, r *http.Request) {
+	className := strings.TrimSpace(r.URL.Query().Get("className"))
+	tip, err := h.repo.GetClassTip(className)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Data: map[string]string{"content": tip.Content}})
 }
 
 // HandleTeacherQuestions lists questions for a course part.
@@ -547,14 +550,12 @@ func (h *Handler) HandleStudentValidate(w http.ResponseWriter, r *http.Request) 
 	}})
 }
 
-// HandleStudentTip returns the tip for a class.
+// HandleStudentTip returns the persisted tip for a class.
 func (h *Handler) HandleStudentTip(w http.ResponseWriter, r *http.Request) {
-	className := r.URL.Query().Get("className")
-	h.tips.mu.RLock()
-	tip, ok := h.tips.data[className]
-	h.tips.mu.RUnlock()
-	if !ok {
-		h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Data: map[string]string{}})
+	className := strings.TrimSpace(r.URL.Query().Get("className"))
+	tip, err := h.repo.GetClassTip(className)
+	if err != nil {
+		h.writeError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Data: map[string]string{"content": tip.Content}})
@@ -679,9 +680,9 @@ func (h *Handler) HandleStudentPart1(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleStudentPart2(w http.ResponseWriter, r *http.Request) {
 	studentID := r.PathValue("studentId")
 	var body struct {
-		CourseID  *int     `json:"courseId"`
-		Answer    string   `json:"answer"`
-		Answers   []string `json:"answers"`
+		CourseID  *int                        `json:"courseId"`
+		Answer    string                      `json:"answer"`
+		Answers   []string                    `json:"answers"`
 		Responses []models.Part2ResponseInput `json:"responses"`
 	}
 	type part2Response struct {

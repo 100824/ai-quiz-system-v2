@@ -298,6 +298,39 @@ func (r *Repository) SetClassBoundCourse(className string, courseID int) error {
 	return err
 }
 
+// GetClassTip returns the persisted classroom tip for a class.
+func (r *Repository) GetClassTip(className string) (models.TipPayload, error) {
+	var tip models.TipPayload
+	className = strings.TrimSpace(className)
+	if className == "" {
+		return tip, nil
+	}
+
+	err := r.db.QueryRow(`
+		SELECT class_name, content, updated_at
+		FROM class_tips
+		WHERE class_name = ?
+	`, className).Scan(&tip.ClassName, &tip.Content, &tip.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.TipPayload{ClassName: className}, nil
+	}
+	return tip, err
+}
+
+// SetClassTip upserts the persisted classroom tip for a class.
+func (r *Repository) SetClassTip(className, content string) error {
+	className = strings.TrimSpace(className)
+	if className == "" {
+		return errors.New("班级名称不能为空")
+	}
+	_, err := r.db.Exec(`
+		INSERT INTO class_tips (class_name, content, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(class_name) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP
+	`, className, content)
+	return err
+}
+
 // ---------------------------------------------------------------------------
 // Stages
 // ---------------------------------------------------------------------------

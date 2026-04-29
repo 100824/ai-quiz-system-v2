@@ -203,8 +203,9 @@ type StatsPayload struct {
 	} `json:"part3Stats"`
 }
 
-// TipPayload is the in-memory tip for a class.
+// TipPayload is a persisted classroom tip for a class.
 type TipPayload struct {
+	ClassName string `json:"className,omitempty"`
 	Content   string `json:"content"`
-	UpdatedAt int64  `json:"updatedAt"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
 }

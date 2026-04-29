@@ -54,6 +54,7 @@ func main() {
 	mux.HandleFunc("GET /api/teacher/stage/{courseId}", h.HandleTeacherStage)
 	mux.HandleFunc("POST /api/teacher/stage", h.HandleSetTeacherStage)
 	mux.HandleFunc("POST /api/teacher/bind-class-course", h.HandleBindClassCourse)
+	mux.HandleFunc("GET /api/teacher/tip", h.HandleGetTeacherTip)
 	mux.HandleFunc("POST /api/teacher/tip", h.HandleTeacherTip)
 	mux.HandleFunc("GET /api/teacher/questions/{courseId}/{part}", h.HandleTeacherQuestions)
 	mux.HandleFunc("POST /api/teacher/question/{id}", h.HandleUpdateQuestion)
