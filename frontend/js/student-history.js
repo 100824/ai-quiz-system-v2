@@ -291,7 +291,7 @@ function renderPart3(part3, score, questions) {
     '第三部分：小测验',
     true,
     cards.join(''),
-    `小测得分：${score !== null && score !== undefined ? `${score}/5` : '未评分'}`
+    `小测得分：${score !== null && score !== undefined ? `${score}` : '未评分'}`
   );
 }
 
@@ -356,7 +356,7 @@ function renderHistoryItem(item, questionMap) {
           <div class="history-pill-row">
             <span class="history-pill">课程编号 ${item.course_id}</span>
             <span class="history-pill history-pill--accent">
-              ${item.part3_score !== null && item.part3_score !== undefined ? `小测 ${item.part3_score}/5` : '未测评'}
+              ${item.part3_score !== null && item.part3_score !== undefined ? `小测 ${item.part3_score}` : '未测评'}
             </span>
           </div>
         </div>

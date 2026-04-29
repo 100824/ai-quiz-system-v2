@@ -999,7 +999,7 @@ function restoreSubmittedData() {
     lockPart(3);
     // 显示结果
     document.getElementById('part3-results').classList.remove('hidden');
-    document.getElementById('total-score').textContent = `${part3Score}/5`;
+    document.getElementById('total-score').textContent = `${part3Score}`;
 
     // 恢复答案解析
     if (surveyData.part3_results) {
@@ -1613,7 +1613,7 @@ async function submitPart3() {
       // 更新UI
       updateUI();
       
-      window.showStudentAlert?.(`第三部分提交成功！你得了 ${part3Score}/5 分！🎉`, 'success');
+      window.showStudentAlert?.(`第三部分提交成功！你得了 ${part3Score} 分！🎉`, 'success');
     } else {
       window.showStudentAlert?.(result.error || '提交失败，请重试', 'error');
     }
