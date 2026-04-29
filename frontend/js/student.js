@@ -1000,6 +1000,37 @@ function restoreSubmittedData() {
     // 显示结果
     document.getElementById('part3-results').classList.remove('hidden');
     document.getElementById('total-score').textContent = `${part3Score}/5`;
+
+    // 恢复答案解析
+    if (surveyData.part3_results) {
+      const resultsContainer = document.getElementById('results-content');
+      let html = '';
+      surveyData.part3_results.forEach((res, index) => {
+        html += `
+          <div class="answer-item ${res.isCorrect ? 'correct' : 'incorrect'}">
+            <h4>
+              ${index + 1}. ${res.question}
+              <span class="${res.isCorrect ? 'correct-mark' : 'incorrect-mark'}">
+                ${res.isCorrect ? '✅ 正确' : '❌ 错误'}
+              </span>
+            </h4>
+            <p>你的答案：<strong class="${res.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${res.studentAnswer}</strong></p>
+            <p>正确答案：<strong class="student-answer-text--correct">${res.correctAnswer}</strong></p>
+            <p class="explanation"><span class="label">解析：</span><span class="content">${res.explanation || ''}</span></p>
+          </div>
+        `;
+      });
+      resultsContainer.innerHTML = html;
+
+      surveyData.part3_results.forEach((res, index) => {
+        if (res.explanation) {
+          const explanationSpan = resultsContainer.querySelectorAll('.explanation .content')[index];
+          if (explanationSpan) {
+            renderRichExplanation(explanationSpan, res.explanation);
+          }
+        }
+      });
+    }
   }
   
   // 恢复第四部分
@@ -1540,6 +1571,7 @@ async function submitPart3() {
       if (!surveyData) surveyData = {};
       surveyData.part3_answers = answers;
       surveyData.part3_score = part3Score;
+      surveyData.part3_results = result.data.results;
       
       // 锁定第三部分
       lockPart(3);
