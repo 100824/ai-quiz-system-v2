@@ -452,10 +452,22 @@ app.get('/api/student/:studentId', (req, res) => {
     const className = studentId.split('_').slice(0, -1).join('_');
     const currentStage = getCurrentStage(cid, className);
     const course = getAllCourses().find(c => c.id === cid);
-    
+
     // 获取学生历史课程分数对比
     const historyScores = getStudentHistoryScores(studentId);
-    
+
+    // 若已提交第三部分，动态构造答案解析供前端恢复展示
+    if (survey && survey.part3_answers) {
+      const part3Questions = getQuestionsByPart(cid, 3);
+      survey.part3_results = part3Questions.map((q, index) => ({
+        question: q.question_text,
+        studentAnswer: survey.part3_answers[`q${index + 1}`],
+        correctAnswer: q.correct_answer,
+        explanation: q.explanation,
+        isCorrect: survey.part3_answers[`q${index + 1}`] === q.correct_answer
+      }));
+    }
+
     res.json({
       success: true,
       data: {
