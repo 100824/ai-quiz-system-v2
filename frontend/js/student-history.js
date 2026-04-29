@@ -380,6 +380,19 @@ function renderSummary(items) {
     ? (scoredLessons.reduce((sum, item) => sum + Number(item.part3_score || 0), 0) / scoredLessons.length).toFixed(1)
     : '--';
   const latestLesson = items[0];
+  const compareItems = items.filter((item) => item.part1_answers && item.part3_score !== null && item.part3_score !== undefined);
+  const compareSummary = compareItems.reduce((acc, item) => {
+    const predicted = Number(item.part1_answers?.predictionScore ?? 0);
+    const actual = Number(item.part3_score ?? 0);
+    if (predicted === actual) {
+      acc.equal += 1;
+    } else if (predicted > actual) {
+      acc.high += 1;
+    } else {
+      acc.low += 1;
+    }
+    return acc;
+  }, { high: 0, equal: 0, low: 0 });
 
   return `
     <div class="history-summary__item">
@@ -398,9 +411,62 @@ function renderSummary(items) {
       <p class="history-summary__label">最近一课</p>
       <p class="history-summary__value">${latestLesson ? `第${latestLesson.lesson_number}课` : '--'}</p>
     </div>
+    <div class="history-summary__item history-summary__item--wide">
+      <p class="history-summary__label">预测分与实际分汇总</p>
+      <p class="history-summary__value history-summary__value--stack">
+        偏高 ${compareSummary.high} 次 ｜ 猜中 ${compareSummary.equal} 次 ｜ 偏低 ${compareSummary.low} 次
+      </p>
+    </div>
   `;
 }
 
+function renderScoreCompare(items) {
+  const compareItems = items.filter((item) => item.part1_answers && item.part3_score !== null && item.part3_score !== undefined);
+  if (compareItems.length === 0) {
+    return '';
+  }
+
+  const rowsHtml = compareItems.map((item) => {
+    const predicted = Number(item.part1_answers?.predictionScore ?? 0);
+    const actual = Number(item.part3_score ?? 0);
+    const diff = actual - predicted;
+    let diffText = '';
+    let diffClass = '';
+    if (diff > 0) {
+      diffText = `+${diff} 偏低`;
+      diffClass = 'history-score-diff--high';
+    } else if (diff < 0) {
+      diffText = `${diff} 偏高`;
+      diffClass = 'history-score-diff--low';
+    } else {
+      diffText = '0 猜中';
+      diffClass = 'history-score-diff--equal';
+    }
+    return `
+      <div class="history-score-row" data-lesson-number="${item.lesson_number}" role="button" tabindex="0" aria-expanded="false">
+        <div class="history-score-course">第${item.lesson_number}课</div>
+        <div class="history-score-predicted">
+          <span class="history-score-label">预测</span>
+          <strong>${predicted}分</strong>
+        </div>
+        <div class="history-score-actual">
+          <span class="history-score-label">实际</span>
+          <strong>${actual}分</strong>
+        </div>
+        <div class="history-score-diff ${diffClass}">${diffText}</div>
+        <div class="history-score-toggle">▼</div>
+      </div>
+      <div class="history-detail-panel hidden" data-lesson-number="${item.lesson_number}"></div>
+    `;
+  }).join('');
+
+  return `
+    <h3 class="history-score-compare__title">📊 历史与预测分数对比</h3>
+    <div class="history-score-list">
+      ${rowsHtml}
+    </div>
+  `;
+}
 
 async function safeFetchJson(response) {
   const text = await response.text();
@@ -463,9 +529,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     summary.innerHTML = renderSummary(items);
     summary.classList.remove('hidden');
 
-    // 直接渲染课程列表
-    const historyList = document.getElementById('history-list');
-    historyList.innerHTML = items.map((item) => renderHistoryItem(item, questionMap)).join('');
+    const scoreCompareHtml = renderScoreCompare(items);
+    const scoreCompareEl = document.getElementById('history-score-compare');
+    if (scoreCompareHtml) {
+      scoreCompareEl.innerHTML = scoreCompareHtml;
+      scoreCompareEl.classList.remove('hidden');
+    }
+
+    // 预生成课程详情HTML，供折叠面板展开时注入
+    const itemHtmlMap = new Map();
+    items.forEach((item) => {
+      itemHtmlMap.set(String(item.lesson_number), renderHistoryItem(item, questionMap));
+    });
+
+    // 隐藏原始课程列表，改为通过分数对比行点击展开
+    document.getElementById('history-list').classList.add('hidden');
+
+    // 绑定分数对比行的点击展开/折叠事件
+    scoreCompareEl.querySelectorAll('.history-score-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const lessonNumber = row.getAttribute('data-lesson-number');
+        const panel = scoreCompareEl.querySelector(`.history-detail-panel[data-lesson-number="${lessonNumber}"]`);
+        const toggle = row.querySelector('.history-score-toggle');
+        const isExpanded = row.getAttribute('aria-expanded') === 'true';
+
+        if (!panel) return;
+
+        if (isExpanded) {
+          panel.classList.add('hidden');
+          row.setAttribute('aria-expanded', 'false');
+          if (toggle) toggle.style.transform = 'rotate(0deg)';
+        } else {
+          if (!panel.innerHTML.trim()) {
+            panel.innerHTML = itemHtmlMap.get(lessonNumber) || '<p class="history-empty-part">未找到该课程数据。</p>';
+          }
+          panel.classList.remove('hidden');
+          row.setAttribute('aria-expanded', 'true');
+          if (toggle) toggle.style.transform = 'rotate(180deg)';
+        }
+      });
+    });
   } catch (error) {
     document.getElementById('history-loading').classList.add('hidden');
     document.getElementById('history-empty').classList.remove('hidden');
