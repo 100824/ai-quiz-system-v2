@@ -504,7 +504,7 @@ header h1 {
 }
 
 .student-page .container.student-shell {
-  max-width: 1120px;
+  max-width: 1320px;
   padding-top: 36px;
 }
 
@@ -630,28 +630,48 @@ header h1 {
 }
 
 .student-survey-layout {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
+  position: relative;
+  min-height: 100vh;
 }
 
 .student-survey-main {
   min-width: 0;
+  margin-left: 356px;
 }
 
 .student-progress-card {
-  position: sticky;
-  top: 112px;
-  padding: 24px 22px;
+  position: fixed;
+  top: 32px;
+  left: max(16px, calc((100vw - 1320px) / 2 + 20px));
+  width: 320px;
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  z-index: 1200;
+  padding: 24px 22px 20px;
   background:
-    radial-gradient(circle at top right, rgba(139, 184, 232, 0.2), transparent 32%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 249, 255, 0.96));
+    radial-gradient(circle at top right, rgba(139, 184, 232, 0.26), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(88, 166, 255, 0.12), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(242, 248, 255, 0.95));
   border: 1px solid rgba(59, 130, 246, 0.16);
-  box-shadow: 0 24px 50px rgba(59, 130, 246, 0.14);
+  box-shadow:
+    0 22px 46px rgba(59, 130, 246, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(18px);
+}
+
+.student-progress-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), transparent 28%),
+    linear-gradient(180deg, rgba(123, 167, 217, 0.08), transparent 44%);
+  pointer-events: none;
 }
 
 .student-progress-card__head {
+  position: relative;
   margin-bottom: 18px;
 }
 
@@ -675,7 +695,34 @@ header h1 {
   line-height: 1.8;
 }
 
+.student-progress-card__summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+.student-progress-card__spark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #d8ebff 0%, #eef7ff 100%);
+  color: #2563eb;
+  font-size: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
 .student-progress-meter {
+  position: relative;
   height: 12px;
   border-radius: 999px;
   background: rgba(59, 130, 246, 0.12);
@@ -692,6 +739,7 @@ header h1 {
 }
 
 .student-progress-count {
+  position: relative;
   margin: 0 0 18px 0;
   color: #4a6fa5;
   font-size: 14px;
@@ -699,19 +747,20 @@ header h1 {
 }
 
 .student-progress-list {
+  position: relative;
   display: grid;
   gap: 12px;
 }
 
 .student-progress-item {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
-  padding: 14px 14px 14px 12px;
-  border-radius: 18px;
+  padding: 14px 16px 14px 12px;
+  border-radius: 20px;
   border: 1px solid rgba(59, 130, 246, 0.12);
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.84);
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
@@ -724,13 +773,14 @@ header h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
   background: #edf4fb;
   color: #5b7fa7;
   font-size: 18px;
   font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .student-progress-item__title {
@@ -747,6 +797,19 @@ header h1 {
   line-height: 1.6;
 }
 
+.student-progress-item__status {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: rgba(59, 130, 246, 0.08);
+  color: #4a6fa5;
+}
+
 .student-progress-item--done {
   border-color: rgba(52, 199, 89, 0.22);
   background: linear-gradient(180deg, #f1fbf4 0%, #e8f7ee 100%);
@@ -754,6 +817,11 @@ header h1 {
 
 .student-progress-item--done .student-progress-item__icon {
   background: #dcf7e5;
+  color: #15803d;
+}
+
+.student-progress-item--done .student-progress-item__status {
+  background: rgba(22, 163, 74, 0.12);
   color: #15803d;
 }
 
@@ -768,6 +836,11 @@ header h1 {
   color: #2563eb;
 }
 
+.student-progress-item--active .student-progress-item__status {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+}
+
 .student-progress-item--waiting {
   border-color: rgba(240, 192, 64, 0.24);
   background: linear-gradient(180deg, #fff9ec 0%, #fff5de 100%);
@@ -778,9 +851,19 @@ header h1 {
   color: #b7791f;
 }
 
+.student-progress-item--waiting .student-progress-item__status {
+  background: rgba(183, 121, 31, 0.14);
+  color: #9a670d;
+}
+
 .student-progress-item--pending .student-progress-item__icon {
   background: #eef3f8;
   color: #7f94ab;
+}
+
+.student-progress-item--pending .student-progress-item__status {
+  background: rgba(127, 148, 171, 0.12);
+  color: #70859b;
 }
 
 .student-part-card {
@@ -2144,17 +2227,26 @@ header h1 {
   }
 
   .student-survey-layout {
-    grid-template-columns: 1fr;
+    min-height: auto;
   }
 
   .student-progress-card {
     position: static;
-    top: auto;
+    left: auto;
+    width: auto;
+    max-height: none;
     padding: 20px 18px;
+    margin-bottom: 20px;
+    overflow: visible;
+    backdrop-filter: none;
   }
 
   .student-progress-list {
     grid-template-columns: 1fr;
+  }
+
+  .student-survey-main {
+    margin-left: 0;
   }
 
   .student-page #course-title {

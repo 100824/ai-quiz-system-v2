@@ -1133,12 +1133,20 @@ function renderStudentProgress(partSubmittedMap, currentStudentStage) {
           ? 'student-progress-item--waiting'
           : 'student-progress-item--pending';
     const icon = item.done ? '✓' : item.active ? '▶' : item.waiting ? '…' : '○';
+    const statusText = item.done
+      ? '已完成'
+      : item.active
+        ? '进行中'
+        : item.waiting
+          ? '等待开启'
+          : '未开始';
     return `
       <div class="student-progress-item ${statusClass}">
         <div class="student-progress-item__icon">${icon}</div>
         <div class="student-progress-item__body">
           <p class="student-progress-item__title">${item.title}</p>
           <p class="student-progress-item__meta">${item.meta}</p>
+          <span class="student-progress-item__status">${statusText}</span>
         </div>
       </div>
     `;
