@@ -574,6 +574,20 @@ func (h *Handler) HandleStudentStatus(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	if len(survey.Part3) > 0 {
+		var answers map[string]string
+		if err := json.Unmarshal(survey.Part3, &answers); err == nil {
+			results, score, err := h.buildPart3Results(courseID, answers)
+			if err != nil {
+				h.writeError(w, err)
+				return
+			}
+			survey.Part3Results = results
+			if survey.Part3Score == nil {
+				survey.Part3Score = &score
+			}
+		}
+	}
 	className, _ := utils.SplitStudentID(studentID)
 	stage, err := h.repo.GetCurrentStage(courseID, className)
 	if err != nil {
@@ -747,16 +761,34 @@ func (h *Handler) HandleStudentPart3(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: err.Error()})
 		return
 	}
-	questions, err := h.repo.GetQuestionsByPart(courseID, 3)
+	results, score, err := h.buildPart3Results(courseID, body.Answers)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
+	raw, _ := json.Marshal(body.Answers)
+	if err := h.repo.SaveStudentPart3(courseID, studentID, raw, score); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Message: fmt.Sprintf("第三部分提交成功，得分%d/%d", score, len(results)), Data: map[string]interface{}{
+		"score":   score,
+		"total":   len(results),
+		"results": results,
+	}})
+}
+
+func (h *Handler) buildPart3Results(courseID int, answers map[string]string) ([]map[string]interface{}, int, error) {
+	questions, err := h.repo.GetQuestionsByPart(courseID, 3)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	score := 0
 	results := make([]map[string]interface{}, 0, len(questions))
 	for i, q := range questions {
 		key := fmt.Sprintf("q%d", i+1)
-		answer := body.Answers[key]
+		answer := answers[key]
 		correct := q.CorrectAnswer != nil && answer == *q.CorrectAnswer
 		if correct {
 			score++
@@ -769,16 +801,7 @@ func (h *Handler) HandleStudentPart3(w http.ResponseWriter, r *http.Request) {
 			"isCorrect":     correct,
 		})
 	}
-	raw, _ := json.Marshal(body.Answers)
-	if err := h.repo.SaveStudentPart3(courseID, studentID, raw, score); err != nil {
-		h.writeError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Message: fmt.Sprintf("第三部分提交成功，得分%d/%d", score, len(questions)), Data: map[string]interface{}{
-		"score":   score,
-		"total":   len(questions),
-		"results": results,
-	}})
+	return results, score, nil
 }
 
 // HandleStudentPart4 saves part-4 answers and marks completion.

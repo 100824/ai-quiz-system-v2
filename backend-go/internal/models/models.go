@@ -81,19 +81,20 @@ type Question struct {
 
 // StudentSurvey holds a single student's answers.
 type StudentSurvey struct {
-	ID          int             `json:"id"`
-	CourseID    int             `json:"course_id"`
-	StudentID   string          `json:"student_id"`
-	StudentName string          `json:"student_name"`
-	ClassName   string          `json:"class_name"`
-	Part1       json.RawMessage `json:"part1_answers"`
-	Part2       *string         `json:"part2_answer"`
-	Part3       json.RawMessage `json:"part3_answers"`
-	Part3Score  *int            `json:"part3_score"`
-	Part4       json.RawMessage `json:"part4_answers"`
-	SubmittedAt *string         `json:"submitted_at"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID           int                      `json:"id"`
+	CourseID     int                      `json:"course_id"`
+	StudentID    string                   `json:"student_id"`
+	StudentName  string                   `json:"student_name"`
+	ClassName    string                   `json:"class_name"`
+	Part1        json.RawMessage          `json:"part1_answers"`
+	Part2        *string                  `json:"part2_answer"`
+	Part3        json.RawMessage          `json:"part3_answers"`
+	Part3Score   *int                     `json:"part3_score"`
+	Part3Results []map[string]interface{} `json:"part3_results,omitempty"`
+	Part4        json.RawMessage          `json:"part4_answers"`
+	SubmittedAt  *string                  `json:"submitted_at"`
+	CreatedAt    string                   `json:"created_at"`
+	UpdatedAt    string                   `json:"updated_at"`
 }
 
 // CompletionStats tracks how many students have finished a part.
