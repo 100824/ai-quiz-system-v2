@@ -1817,8 +1817,8 @@ async function submitPart4() {
       const part4El = document.getElementById('part4');
       if (part4El) part4El.classList.add('hidden');
 
-      // 显示完成页面
-      document.getElementById('completed-page').classList.remove('hidden');
+      // 统一刷新页面状态，确保左侧进度栏与完成页同步更新
+      updateUI();
     } else {
       window.showStudentAlert?.(result.error || '提交失败，请重试', 'error');
     }
