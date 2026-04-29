@@ -439,7 +439,7 @@ function renderScoreCompare(items) {
       diffText = `${diff} 偏高`;
       diffClass = 'history-score-diff--low';
     } else {
-      diffText = '0 猜中';
+      diffText = '猜中';
       diffClass = 'history-score-diff--equal';
     }
     return `
