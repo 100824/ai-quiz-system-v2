@@ -309,17 +309,6 @@ function renderPart4(part4) {
 
   const cards = [
     buildQuestionCard(
-      '学习成果对比',
-      '本节课表现回顾',
-      [
-        buildAnswerRow('实际得分', escapeHtml(safeText(part4.scoreCompare?.actual))),
-        buildAnswerRow('预测得分', escapeHtml(safeText(part4.scoreCompare?.predicted)))
-      ].join(''),
-      [],
-      '',
-      'purple'
-    ),
-    buildQuestionCard(
       '第 2 题',
       '这节课哪些做法对你最有帮助？',
       buildAnswerRow(
