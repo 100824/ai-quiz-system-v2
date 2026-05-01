@@ -520,16 +520,36 @@ function setupPart2RichEditor() {
     editor.dataset.pasteBound = 'true';
     editor.addEventListener('paste', (event) => {
       event.preventDefault();
-      const pastedText = event.clipboardData?.getData('text/plain')
+      const pastedText = (event.clipboardData?.getData('text/plain')
         || window.clipboardData?.getData('Text')
-        || '';
+        || '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/\u00a0/g, ' ')
+        .replace(/\t/g, '    ')
+        .replace(/[\u200b-\u200d\uFEFF]/g, '');
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) {
-        editor.textContent += pastedText;
+        editor.appendChild(document.createTextNode(pastedText));
+        editor.normalize();
         return;
       }
 
-      const range = selection.getRangeAt(0);
+      let range = selection.getRangeAt(0);
+      const anchorNode = selection.anchorNode;
+      const focusNode = selection.focusNode;
+      const selectionInsideEditor = !!anchorNode && !!focusNode
+        && editor.contains(anchorNode)
+        && editor.contains(focusNode)
+        && editor.contains(range.commonAncestorContainer);
+
+      if (!selectionInsideEditor) {
+        range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
       range.deleteContents();
       const textNode = document.createTextNode(pastedText);
       range.insertNode(textNode);
