@@ -1188,7 +1188,6 @@ function renderStudentProgress(partSubmittedMap, currentStudentStage) {
         <div class="student-progress-item__icon">${icon}</div>
         <div class="student-progress-item__body">
           <p class="student-progress-item__title">${item.title}</p>
-          <p class="student-progress-item__meta">${item.meta}</p>
           <span class="student-progress-item__status">${statusText}</span>
         </div>
       </div>

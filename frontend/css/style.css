@@ -647,7 +647,7 @@ header h1 {
   max-height: calc(100vh - 160px);
   overflow: auto;
   z-index: 1200;
-  padding: 20px 16px 16px;
+  padding: 16px 14px 14px;
   background:
     radial-gradient(circle at top right, rgba(139, 184, 232, 0.26), transparent 34%),
     radial-gradient(circle at bottom left, rgba(88, 166, 255, 0.12), transparent 38%),
@@ -672,27 +672,27 @@ header h1 {
 
 .student-progress-card__head {
   position: relative;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .student-pill--progress {
   min-height: 34px;
-  margin-bottom: 14px;
-  font-size: 13px;
+  margin-bottom: 10px;
+  font-size: 12px;
 }
 
 .student-progress-card__head h3 {
-  margin: 0 0 8px 0;
+  margin: 0 0 6px 0;
   text-align: left;
   color: #4a6fa5;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .student-progress-card__head p {
   margin: 0;
   color: #6a8db5;
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .student-progress-card__summary {
@@ -700,9 +700,9 @@ header h1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding: 12px 14px;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(59, 130, 246, 0.1);
@@ -712,22 +712,22 @@ header h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   border-radius: 12px;
   background: linear-gradient(135deg, #d8ebff 0%, #eef7ff 100%);
   color: #2563eb;
-  font-size: 22px;
+  font-size: 18px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .student-progress-meter {
   position: relative;
-  height: 12px;
+  height: 10px;
   border-radius: 999px;
   background: rgba(59, 130, 246, 0.12);
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .student-progress-meter__fill {
@@ -740,25 +740,25 @@ header h1 {
 
 .student-progress-count {
   position: relative;
-  margin: 0 0 14px 0;
+  margin: 0 0 10px 0;
   color: #4a6fa5;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .student-progress-list {
   position: relative;
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .student-progress-item {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  padding: 12px 12px 12px 10px;
-  border-radius: 18px;
+  padding: 10px 10px 10px 8px;
+  border-radius: 16px;
   border: 1px solid rgba(59, 130, 246, 0.12);
   background: rgba(255, 255, 255, 0.84);
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
@@ -773,37 +773,30 @@ header h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   background: #edf4fb;
   color: #5b7fa7;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 900;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .student-progress-item__title {
-  margin: 0 0 4px 0;
-  color: #4a6fa5;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.student-progress-item__meta {
   margin: 0;
-  color: #7a94b2;
-  font-size: 12px;
-  line-height: 1.55;
+  color: #4a6fa5;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .student-progress-item__status {
   display: inline-flex;
   align-items: center;
-  margin-top: 6px;
-  padding: 4px 8px;
+  margin-top: 4px;
+  padding: 3px 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.02em;
   background: rgba(59, 130, 246, 0.08);
