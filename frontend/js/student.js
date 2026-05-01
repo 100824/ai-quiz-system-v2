@@ -516,6 +516,29 @@ function setupPart2RichEditor() {
     if (!editor.innerHTML.trim()) {
       editor.innerHTML = '';
     }
+    if (editor.dataset.pasteBound === 'true') return;
+    editor.dataset.pasteBound = 'true';
+    editor.addEventListener('paste', (event) => {
+      event.preventDefault();
+      const pastedText = event.clipboardData?.getData('text/plain')
+        || window.clipboardData?.getData('Text')
+        || '';
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        editor.textContent += pastedText;
+        return;
+      }
+
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      const textNode = document.createTextNode(pastedText);
+      range.insertNode(textNode);
+      range.setStartAfter(textNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      editor.normalize();
+    });
   });
 }
 
