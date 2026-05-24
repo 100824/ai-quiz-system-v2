@@ -754,16 +754,41 @@ func (r *Repository) GetStudentSurvey(courseID int, studentID string) (*models.S
 // GetAllStudentSurveys returns every survey for a course, optionally filtered by class.
 func (r *Repository) GetAllStudentSurveys(courseID int, className string) ([]models.StudentSurvey, error) {
 	query := `
-		SELECT id, course_id, student_id, student_name, class_name, part1_answers, part2_answer, part3_answers, part3_score,
-		       teacher_score, teacher_score_note, teacher_score_updated_at, part4_answers, submitted_at, created_at, updated_at
-		FROM student_surveys WHERE course_id = ?
+		SELECT s.id, s.course_id, c.name, c.lesson_number, s.student_id, s.student_name, s.class_name, s.part1_answers, s.part2_answer,
+		       s.part3_answers, s.part3_score, s.teacher_score, s.teacher_score_note, s.teacher_score_updated_at,
+		       s.part4_answers, s.submitted_at, s.created_at, s.updated_at
+		FROM student_surveys s
+		JOIN courses c ON s.course_id = c.id
+		WHERE s.course_id = ?
 	`
 	args := []interface{}{courseID}
 	if strings.TrimSpace(className) != "" {
-		query += ` AND class_name = ?`
+		query += ` AND s.class_name = ?`
 		args = append(args, className)
 	}
-	query += ` ORDER BY class_name, student_name`
+	query += ` ORDER BY c.lesson_number, s.class_name, s.student_name`
+	return r.queryStudentSurveys(query, args...)
+}
+
+// GetAllStudentSurveysAcrossCourses returns surveys for every course, optionally filtered by class.
+func (r *Repository) GetAllStudentSurveysAcrossCourses(className string) ([]models.StudentSurvey, error) {
+	query := `
+		SELECT s.id, s.course_id, c.name, c.lesson_number, s.student_id, s.student_name, s.class_name, s.part1_answers, s.part2_answer,
+		       s.part3_answers, s.part3_score, s.teacher_score, s.teacher_score_note, s.teacher_score_updated_at,
+		       s.part4_answers, s.submitted_at, s.created_at, s.updated_at
+		FROM student_surveys s
+		JOIN courses c ON s.course_id = c.id
+	`
+	args := []interface{}{}
+	if strings.TrimSpace(className) != "" {
+		query += ` WHERE s.class_name = ?`
+		args = append(args, className)
+	}
+	query += ` ORDER BY c.lesson_number, s.class_name, s.student_name`
+	return r.queryStudentSurveys(query, args...)
+}
+
+func (r *Repository) queryStudentSurveys(query string, args ...interface{}) ([]models.StudentSurvey, error) {
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -774,7 +799,7 @@ func (r *Repository) GetAllStudentSurveys(courseID int, className string) ([]mod
 		var s models.StudentSurvey
 		var part1, part2, part3, part4, submittedAt, teacherNote, teacherScoreUpdatedAt sql.NullString
 		var part3Score, teacherScore sql.NullInt64
-		if err := rows.Scan(&s.ID, &s.CourseID, &s.StudentID, &s.StudentName, &s.ClassName, &part1, &part2, &part3, &part3Score, &teacherScore, &teacherNote, &teacherScoreUpdatedAt, &part4, &submittedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.CourseID, &s.CourseName, &s.LessonNo, &s.StudentID, &s.StudentName, &s.ClassName, &part1, &part2, &part3, &part3Score, &teacherScore, &teacherNote, &teacherScoreUpdatedAt, &part4, &submittedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if part1.Valid {

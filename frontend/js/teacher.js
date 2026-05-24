@@ -1221,6 +1221,11 @@ async function exportStats() {
   window.open(url, "_blank");
 }
 
+async function exportAllStats() {
+  const url = `${API_BASE}/teacher/stats/export-all`;
+  window.open(url, "_blank");
+}
+
 async function saveTeacherScore(index) {
   const student = currentStatsStudents[index];
   const courseId = document.getElementById("statsCourseSelect").value;

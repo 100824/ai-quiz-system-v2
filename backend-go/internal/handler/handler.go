@@ -471,16 +471,37 @@ func (h *Handler) HandleExportStats(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	filename := fmt.Sprintf("答题记录_%s_%s.xlsx", utils.Fallback(className, "所有班级"), time.Now().Format("2006-01-02"))
+	h.writeStatsExcel(w, students, filename)
+}
 
+// HandleExportAllStats generates an Excel export for every course and class.
+func (h *Handler) HandleExportAllStats(w http.ResponseWriter, r *http.Request) {
+	className := r.URL.Query().Get("className")
+	students, err := h.repo.GetAllStudentSurveysAcrossCourses(className)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	target := "全部课程_全部班级"
+	if strings.TrimSpace(className) != "" {
+		target = "全部课程_" + className
+	}
+	filename := fmt.Sprintf("答题记录_%s_%s.xlsx", target, time.Now().Format("2006-01-02"))
+	h.writeStatsExcel(w, students, filename)
+}
+
+func (h *Handler) writeStatsExcel(w http.ResponseWriter, students []models.StudentSurvey, filename string) {
 	file := excelize.NewFile()
 	sheet := "答题记录"
 	file.SetSheetName("Sheet1", sheet)
 	headers := []string{
-		"班级", "姓名", "完成状态", "第一部分-预测得分", "第一部分-学习方法", "第一部分-自定义学习方法",
+		"课程", "课程序号", "班级", "姓名", "完成状态", "第一部分-预测得分", "第一部分-学习方法", "第一部分-自定义学习方法",
 		"第二部分-理解程度", "第二部分-开放题答案", "第三部分-第1题答案", "第三部分-第2题答案", "第三部分-第3题答案",
 		"第三部分-第4题答案", "第三部分-第5题答案", "第三部分-总得分", "教师手动评分", "教师评分备注",
 		"最终实际分", "分数来源", "第四部分-实际得分", "第四部分-预测得分", "第四部分-第2题答案",
-		"第四部分-第2题自定义内容", "第四部分-第3题答案", "第四部分-第3题自定义内容", "最后提交时间",
+		"第四部分-预测结果", "第四部分-第2题答案", "第四部分-第2题自定义内容", "第四部分-第3题答案",
+		"第四部分-第3题自定义内容", "最后提交时间",
 	}
 	for i, hText := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
@@ -494,7 +515,6 @@ func (h *Handler) HandleExportStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	filename := fmt.Sprintf("答题记录_%s_%s.xlsx", utils.Fallback(className, "所有班级"), time.Now().Format("2006-01-02"))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", utils.URLEncode(filename)))
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.WriteHeader(http.StatusOK)

@@ -83,6 +83,8 @@ type Question struct {
 type StudentSurvey struct {
 	ID                    int                      `json:"id"`
 	CourseID              int                      `json:"course_id"`
+	CourseName            string                   `json:"course_name,omitempty"`
+	LessonNo              int                      `json:"lesson_number,omitempty"`
 	StudentID             string                   `json:"student_id"`
 	StudentName           string                   `json:"student_name"`
 	ClassName             string                   `json:"class_name"`

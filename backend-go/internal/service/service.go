@@ -142,6 +142,7 @@ func BuildExportRow(s models.StudentSurvey) []string {
 	}
 
 	predictionScore := "未提交"
+	var predictionScoreValue *int
 	learningMethods := "未提交"
 	customLearningMethod := "无"
 	part2Understanding := "未提交"
@@ -150,6 +151,7 @@ func BuildExportRow(s models.StudentSurvey) []string {
 		var answers models.Part1Answers
 		if err := json.Unmarshal(s.Part1, &answers); err == nil {
 			predictionScore = fmt.Sprintf("%d分", answers.PredictionScore)
+			predictionScoreValue = &answers.PredictionScore
 			if len(answers.LearningMethods) > 0 {
 				learningMethods = strings.Join(answers.LearningMethods, "、")
 			} else {
@@ -187,6 +189,7 @@ func BuildExportRow(s models.StudentSurvey) []string {
 	}
 	actualScore := "未提交"
 	predictedScore := "未提交"
+	guessResult := "未统计"
 	part4Q2Answer := "未提交"
 	part4Q2Custom := "无"
 	part4Q3Answer := "未提交"
@@ -239,9 +242,21 @@ func BuildExportRow(s models.StudentSurvey) []string {
 	case "part3":
 		scoreSource = "第三部分小测"
 	}
+	if s.ActualScore != nil && predictionScoreValue != nil {
+		switch {
+		case *predictionScoreValue > *s.ActualScore:
+			guessResult = "猜高"
+		case *predictionScoreValue < *s.ActualScore:
+			guessResult = "猜低"
+		default:
+			guessResult = "猜中"
+		}
+	}
 
 	lastSubmitted := s.UpdatedAt
 	return []string{
+		utils.TruncateCell(utils.ValueOr(s.CourseName, fmt.Sprintf("课程%d", s.CourseID))),
+		utils.TruncateCell(fmt.Sprintf("%d", s.LessonNo)),
 		utils.TruncateCell(s.ClassName),
 		utils.TruncateCell(s.StudentName),
 		utils.TruncateCell(status),
@@ -262,6 +277,7 @@ func BuildExportRow(s models.StudentSurvey) []string {
 		utils.TruncateCell(scoreSource),
 		utils.TruncateCell(actualScore),
 		utils.TruncateCell(predictedScore),
+		utils.TruncateCell(guessResult),
 		utils.TruncateCell(part4Q2Answer),
 		utils.TruncateCell(part4Q2Custom),
 		utils.TruncateCell(part4Q3Answer),
