@@ -478,9 +478,9 @@ func (h *Handler) HandleExportStats(w http.ResponseWriter, r *http.Request) {
 	headers := []string{
 		"班级", "姓名", "完成状态", "第一部分-预测得分", "第一部分-学习方法", "第一部分-自定义学习方法",
 		"第二部分-理解程度", "第二部分-开放题答案", "第三部分-第1题答案", "第三部分-第2题答案", "第三部分-第3题答案",
-		"第三部分-第4题答案", "第三部分-第5题答案", "第三部分-总得分", "第四部分-实际得分",
-		"第四部分-预测得分", "第四部分-第2题答案", "第四部分-第2题自定义内容", "第四部分-第3题答案",
-		"第四部分-第3题自定义内容", "最后提交时间",
+		"第三部分-第4题答案", "第三部分-第5题答案", "第三部分-总得分", "教师手动评分", "教师评分备注",
+		"最终实际分", "分数来源", "第四部分-实际得分", "第四部分-预测得分", "第四部分-第2题答案",
+		"第四部分-第2题自定义内容", "第四部分-第3题答案", "第四部分-第3题自定义内容", "最后提交时间",
 	}
 	for i, hText := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
@@ -501,6 +501,34 @@ func (h *Handler) HandleExportStats(w http.ResponseWriter, r *http.Request) {
 	if _, err := file.WriteTo(w); err != nil {
 		log.Printf("write export file: %v", err)
 	}
+}
+
+// HandleTeacherManualScore saves or clears a teacher-entered score for a student.
+func (h *Handler) HandleTeacherManualScore(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CourseID     models.FlexInt `json:"courseId"`
+		StudentID    string         `json:"studentId"`
+		TeacherScore *int           `json:"teacherScore"`
+		Note         string         `json:"note"`
+	}
+	if err := utils.DecodeJSON(r, &body); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+	courseID := int(body.CourseID)
+	if courseID <= 0 || strings.TrimSpace(body.StudentID) == "" {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: "courseId 或 studentId 无效"})
+		return
+	}
+	if body.TeacherScore != nil && (*body.TeacherScore < 0 || *body.TeacherScore > 5) {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: "教师评分需在 0-5 分之间"})
+		return
+	}
+	if err := h.repo.SaveTeacherScore(courseID, body.StudentID, body.TeacherScore, body.Note); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Message: "教师评分已保存"})
 }
 
 // ---------------------------------------------------------------------------

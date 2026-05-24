@@ -652,16 +652,66 @@ func (r *Repository) SaveStudentPart4(courseID int, studentID string, answers js
 	return err
 }
 
+// SaveTeacherScore persists a manual score without touching the part-3 quiz score.
+func (r *Repository) SaveTeacherScore(courseID int, studentID string, score *int, note string) error {
+	if err := r.EnsureStudentSurveyRecord(courseID, studentID); err != nil {
+		return err
+	}
+	if score == nil {
+		_, err := r.db.Exec(`
+			UPDATE student_surveys
+			SET teacher_score = NULL, teacher_score_note = NULL, teacher_score_updated_at = NULL, updated_at = CURRENT_TIMESTAMP
+			WHERE course_id = ? AND student_id = ?
+		`, courseID, studentID)
+		return err
+	}
+	_, err := r.db.Exec(`
+		UPDATE student_surveys
+		SET teacher_score = ?, teacher_score_note = ?, teacher_score_updated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		WHERE course_id = ? AND student_id = ?
+	`, *score, utils.EmptyToNil(&note), courseID, studentID)
+	return err
+}
+
+func setStudentActualScore(s *models.StudentSurvey) {
+	s.ActualScore = nil
+	s.ActualScoreSource = "none"
+	if s.TeacherScore != nil {
+		s.ActualScore = s.TeacherScore
+		s.ActualScoreSource = "teacher"
+		return
+	}
+	if s.Part3Score != nil {
+		s.ActualScore = s.Part3Score
+		s.ActualScoreSource = "part3"
+	}
+}
+
+func setHistoryActualScore(item *models.StudentHistoryDetail) {
+	item.ActualScore = nil
+	item.ActualScoreSource = "none"
+	if item.TeacherScore != nil {
+		item.ActualScore = item.TeacherScore
+		item.ActualScoreSource = "teacher"
+		return
+	}
+	if item.Part3Score != nil {
+		item.ActualScore = item.Part3Score
+		item.ActualScoreSource = "part3"
+	}
+}
+
 // GetStudentSurvey returns a single student's survey record.
 func (r *Repository) GetStudentSurvey(courseID int, studentID string) (*models.StudentSurvey, error) {
 	var s models.StudentSurvey
 	var part1, part3, part4 sql.NullString
-	var part2, submittedAt sql.NullString
-	var part3Score sql.NullInt64
+	var part2, submittedAt, teacherNote, teacherScoreUpdatedAt sql.NullString
+	var part3Score, teacherScore sql.NullInt64
 	err := r.db.QueryRow(`
-		SELECT id, course_id, student_id, student_name, class_name, part1_answers, part2_answer, part3_answers, part3_score, part4_answers, submitted_at, created_at, updated_at
+		SELECT id, course_id, student_id, student_name, class_name, part1_answers, part2_answer, part3_answers, part3_score,
+		       teacher_score, teacher_score_note, teacher_score_updated_at, part4_answers, submitted_at, created_at, updated_at
 		FROM student_surveys WHERE course_id = ? AND student_id = ?
-	`, courseID, studentID).Scan(&s.ID, &s.CourseID, &s.StudentID, &s.StudentName, &s.ClassName, &part1, &part2, &part3, &part3Score, &part4, &submittedAt, &s.CreatedAt, &s.UpdatedAt)
+	`, courseID, studentID).Scan(&s.ID, &s.CourseID, &s.StudentID, &s.StudentName, &s.ClassName, &part1, &part2, &part3, &part3Score, &teacherScore, &teacherNote, &teacherScoreUpdatedAt, &part4, &submittedAt, &s.CreatedAt, &s.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -681,19 +731,31 @@ func (r *Repository) GetStudentSurvey(courseID int, studentID string) (*models.S
 		val := int(part3Score.Int64)
 		s.Part3Score = &val
 	}
+	if teacherScore.Valid {
+		val := int(teacherScore.Int64)
+		s.TeacherScore = &val
+	}
+	if teacherNote.Valid {
+		s.TeacherNote = utils.Ptr(teacherNote.String)
+	}
+	if teacherScoreUpdatedAt.Valid {
+		s.TeacherScoreUpdatedAt = utils.Ptr(teacherScoreUpdatedAt.String)
+	}
 	if part4.Valid {
 		s.Part4 = json.RawMessage(part4.String)
 	}
 	if submittedAt.Valid {
 		s.SubmittedAt = utils.Ptr(submittedAt.String)
 	}
+	setStudentActualScore(&s)
 	return &s, nil
 }
 
 // GetAllStudentSurveys returns every survey for a course, optionally filtered by class.
 func (r *Repository) GetAllStudentSurveys(courseID int, className string) ([]models.StudentSurvey, error) {
 	query := `
-		SELECT id, course_id, student_id, student_name, class_name, part1_answers, part2_answer, part3_answers, part3_score, part4_answers, submitted_at, created_at, updated_at
+		SELECT id, course_id, student_id, student_name, class_name, part1_answers, part2_answer, part3_answers, part3_score,
+		       teacher_score, teacher_score_note, teacher_score_updated_at, part4_answers, submitted_at, created_at, updated_at
 		FROM student_surveys WHERE course_id = ?
 	`
 	args := []interface{}{courseID}
@@ -710,9 +772,9 @@ func (r *Repository) GetAllStudentSurveys(courseID int, className string) ([]mod
 	var items []models.StudentSurvey
 	for rows.Next() {
 		var s models.StudentSurvey
-		var part1, part2, part3, part4, submittedAt sql.NullString
-		var part3Score sql.NullInt64
-		if err := rows.Scan(&s.ID, &s.CourseID, &s.StudentID, &s.StudentName, &s.ClassName, &part1, &part2, &part3, &part3Score, &part4, &submittedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		var part1, part2, part3, part4, submittedAt, teacherNote, teacherScoreUpdatedAt sql.NullString
+		var part3Score, teacherScore sql.NullInt64
+		if err := rows.Scan(&s.ID, &s.CourseID, &s.StudentID, &s.StudentName, &s.ClassName, &part1, &part2, &part3, &part3Score, &teacherScore, &teacherNote, &teacherScoreUpdatedAt, &part4, &submittedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if part1.Valid {
@@ -728,12 +790,23 @@ func (r *Repository) GetAllStudentSurveys(courseID int, className string) ([]mod
 			score := int(part3Score.Int64)
 			s.Part3Score = &score
 		}
+		if teacherScore.Valid {
+			score := int(teacherScore.Int64)
+			s.TeacherScore = &score
+		}
+		if teacherNote.Valid {
+			s.TeacherNote = utils.Ptr(teacherNote.String)
+		}
+		if teacherScoreUpdatedAt.Valid {
+			s.TeacherScoreUpdatedAt = utils.Ptr(teacherScoreUpdatedAt.String)
+		}
 		if part4.Valid {
 			s.Part4 = json.RawMessage(part4.String)
 		}
 		if submittedAt.Valid {
 			s.SubmittedAt = utils.Ptr(submittedAt.String)
 		}
+		setStudentActualScore(&s)
 		items = append(items, s)
 	}
 	return items, rows.Err()
@@ -788,10 +861,10 @@ func (r *Repository) GetCompletionStats(courseID, part int, className string) (m
 // GetStudentHistoryScores returns the score history for a student.
 func (r *Repository) GetStudentHistoryScores(studentID string) ([]models.HistoryScore, error) {
 	rows, err := r.db.Query(`
-		SELECT c.name, c.lesson_number, s.part3_score, s.part1_answers
+		SELECT c.name, c.lesson_number, s.part3_score, s.teacher_score, s.teacher_score_note, s.part1_answers
 		FROM student_surveys s
 		JOIN courses c ON s.course_id = c.id
-		WHERE s.student_id = ? AND s.part3_score IS NOT NULL
+		WHERE s.student_id = ? AND (s.teacher_score IS NOT NULL OR s.part3_score IS NOT NULL)
 		ORDER BY c.lesson_number ASC
 	`, studentID)
 	if err != nil {
@@ -801,12 +874,25 @@ func (r *Repository) GetStudentHistoryScores(studentID string) ([]models.History
 	var items []models.HistoryScore
 	for rows.Next() {
 		var name string
-		var lessonNo, actualScore int
-		var rawPart1 sql.NullString
-		if err := rows.Scan(&name, &lessonNo, &actualScore, &rawPart1); err != nil {
+		var lessonNo int
+		var part3Score, teacherScore sql.NullInt64
+		var teacherNote, rawPart1 sql.NullString
+		if err := rows.Scan(&name, &lessonNo, &part3Score, &teacherScore, &teacherNote, &rawPart1); err != nil {
 			return nil, err
 		}
-		item := models.HistoryScore{CourseName: name, LessonNumber: lessonNo, ActualScore: actualScore}
+		item := models.HistoryScore{CourseName: name, LessonNumber: lessonNo, ActualScoreSource: "none"}
+		if teacherScore.Valid {
+			score := int(teacherScore.Int64)
+			item.ActualScore = &score
+			item.ActualScoreSource = "teacher"
+		} else if part3Score.Valid {
+			score := int(part3Score.Int64)
+			item.ActualScore = &score
+			item.ActualScoreSource = "part3"
+		}
+		if teacherNote.Valid {
+			item.TeacherScoreNote = utils.Ptr(teacherNote.String)
+		}
 		if rawPart1.Valid {
 			var answers models.Part1Answers
 			if err := json.Unmarshal([]byte(rawPart1.String), &answers); err == nil {
@@ -827,7 +913,8 @@ func (r *Repository) GetStudentHistoryDetails(studentID string, currentCourseID 
 
 	rows, err := r.db.Query(`
 		SELECT s.course_id, c.name, c.lesson_number, s.student_id, s.student_name, s.class_name,
-		       s.part1_answers, s.part2_answer, s.part3_answers, s.part3_score, s.part4_answers,
+		       s.part1_answers, s.part2_answer, s.part3_answers, s.part3_score,
+		       s.teacher_score, s.teacher_score_note, s.teacher_score_updated_at, s.part4_answers,
 		       s.submitted_at, s.updated_at
 		FROM student_surveys s
 		JOIN courses c ON s.course_id = c.id
@@ -842,11 +929,11 @@ func (r *Repository) GetStudentHistoryDetails(studentID string, currentCourseID 
 	var items []models.StudentHistoryDetail
 	for rows.Next() {
 		var item models.StudentHistoryDetail
-		var part1, part2, part3, part4, submittedAt sql.NullString
-		var part3Score sql.NullInt64
+		var part1, part2, part3, part4, submittedAt, teacherNote, teacherScoreUpdatedAt sql.NullString
+		var part3Score, teacherScore sql.NullInt64
 		if err := rows.Scan(
 			&item.CourseID, &item.CourseName, &item.LessonNo, &item.StudentID, &item.StudentName, &item.ClassName,
-			&part1, &part2, &part3, &part3Score, &part4, &submittedAt, &item.UpdatedAt,
+			&part1, &part2, &part3, &part3Score, &teacherScore, &teacherNote, &teacherScoreUpdatedAt, &part4, &submittedAt, &item.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -863,12 +950,23 @@ func (r *Repository) GetStudentHistoryDetails(studentID string, currentCourseID 
 			score := int(part3Score.Int64)
 			item.Part3Score = &score
 		}
+		if teacherScore.Valid {
+			score := int(teacherScore.Int64)
+			item.TeacherScore = &score
+		}
+		if teacherNote.Valid {
+			item.TeacherNote = utils.Ptr(teacherNote.String)
+		}
+		if teacherScoreUpdatedAt.Valid {
+			item.TeacherScoreUpdatedAt = utils.Ptr(teacherScoreUpdatedAt.String)
+		}
 		if part4.Valid {
 			item.Part4 = json.RawMessage(part4.String)
 		}
 		if submittedAt.Valid {
 			item.SubmittedAt = utils.Ptr(submittedAt.String)
 		}
+		setHistoryActualScore(&item)
 		items = append(items, item)
 	}
 	return items, rows.Err()

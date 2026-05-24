@@ -97,6 +97,9 @@ func InitDB(db *sql.DB) error {
 			part2_answer TEXT,
 			part3_answers TEXT,
 			part3_score INTEGER,
+			teacher_score INTEGER,
+			teacher_score_note TEXT,
+			teacher_score_updated_at TEXT,
 			part4_answers TEXT,
 			submitted_at TEXT,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -134,6 +137,15 @@ func InitDB(db *sql.DB) error {
 		return err
 	}
 	if _, err := db.Exec(`ALTER TABLE questions ADD COLUMN annotation_enabled INTEGER NOT NULL DEFAULT 1`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	if _, err := db.Exec(`ALTER TABLE student_surveys ADD COLUMN teacher_score INTEGER`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	if _, err := db.Exec(`ALTER TABLE student_surveys ADD COLUMN teacher_score_note TEXT`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	if _, err := db.Exec(`ALTER TABLE student_surveys ADD COLUMN teacher_score_updated_at TEXT`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return err
 	}
 

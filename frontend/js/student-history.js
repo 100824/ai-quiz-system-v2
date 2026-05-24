@@ -342,6 +342,8 @@ function renderHistoryItem(item, questionMap) {
   const part2Done = !!item.part2_answer;
   const part3Done = !!item.part3_answers;
   const part4Done = !!item.part4_answers;
+  const actualScore = getActualScore(item);
+  const actualSourceLabel = getActualScoreSourceLabel(item);
 
   return `
     <article class="card history-course-card">
@@ -356,7 +358,7 @@ function renderHistoryItem(item, questionMap) {
           <div class="history-pill-row">
             <span class="history-pill">课程编号 ${item.course_id}</span>
             <span class="history-pill history-pill--accent">
-              ${item.part3_score !== null && item.part3_score !== undefined ? `小测 ${item.part3_score}` : '未测评'}
+              ${actualScore !== null ? `${actualSourceLabel} ${actualScore}` : '待评分'}
             </span>
           </div>
         </div>
@@ -372,18 +374,38 @@ function renderHistoryItem(item, questionMap) {
   `;
 }
 
+function getActualScore(item) {
+  const score = item.actual_score ?? item.actualScore;
+  if (score !== null && score !== undefined) return Number(score);
+  if (item.teacher_score !== null && item.teacher_score !== undefined) return Number(item.teacher_score);
+  if (item.part3_score !== null && item.part3_score !== undefined) return Number(item.part3_score);
+  return null;
+}
+
+function getActualScoreSource(item) {
+  if (item.actual_score_source) return item.actual_score_source;
+  if (item.actualScoreSource) return item.actualScoreSource;
+  if (item.teacher_score !== null && item.teacher_score !== undefined) return 'teacher';
+  if (item.part3_score !== null && item.part3_score !== undefined) return 'part3';
+  return 'none';
+}
+
+function getActualScoreSourceLabel(item) {
+  return getActualScoreSource(item) === 'teacher' ? '教师评分' : '小测';
+}
+
 function renderSummary(items) {
   const totalLessons = items.length;
   const completedLessons = items.filter((item) => item.part4_answers || item.part3_answers || item.part2_answer || item.part1_answers).length;
-  const scoredLessons = items.filter((item) => item.part3_score !== null && item.part3_score !== undefined);
+  const scoredLessons = items.filter((item) => getActualScore(item) !== null);
   const averageScore = scoredLessons.length
-    ? (scoredLessons.reduce((sum, item) => sum + Number(item.part3_score || 0), 0) / scoredLessons.length).toFixed(1)
+    ? (scoredLessons.reduce((sum, item) => sum + Number(getActualScore(item) || 0), 0) / scoredLessons.length).toFixed(1)
     : '--';
   const latestLesson = items[0];
-  const compareItems = items.filter((item) => item.part1_answers && item.part3_score !== null && item.part3_score !== undefined);
+  const compareItems = items.filter((item) => item.part1_answers && getActualScore(item) !== null);
   const compareSummary = compareItems.reduce((acc, item) => {
     const predicted = Number(item.part1_answers?.predictionScore ?? 0);
-    const actual = Number(item.part3_score ?? 0);
+    const actual = Number(getActualScore(item) ?? 0);
     if (predicted === actual) {
       acc.equal += 1;
     } else if (predicted > actual) {
@@ -404,7 +426,7 @@ function renderSummary(items) {
       <p class="history-summary__value">${completedLessons}</p>
     </div>
     <div class="history-summary__item">
-      <p class="history-summary__label">小测平均分</p>
+      <p class="history-summary__label">实际平均分</p>
       <p class="history-summary__value">${averageScore}</p>
     </div>
     <div class="history-summary__item">
@@ -421,14 +443,15 @@ function renderSummary(items) {
 }
 
 function renderScoreCompare(items) {
-  const compareItems = items.filter((item) => item.part1_answers && item.part3_score !== null && item.part3_score !== undefined);
+  const compareItems = items.filter((item) => item.part1_answers && getActualScore(item) !== null);
   if (compareItems.length === 0) {
     return '';
   }
 
   const rowsHtml = compareItems.map((item) => {
     const predicted = Number(item.part1_answers?.predictionScore ?? 0);
-    const actual = Number(item.part3_score ?? 0);
+    const actual = Number(getActualScore(item) ?? 0);
+    const sourceLabel = getActualScoreSourceLabel(item);
     const diff = actual - predicted;
     let diffText = '';
     let diffClass = '';
@@ -450,7 +473,7 @@ function renderScoreCompare(items) {
           <strong>${predicted}分</strong>
         </div>
         <div class="history-score-actual">
-          <span class="history-score-label">实际</span>
+          <span class="history-score-label">实际 · ${sourceLabel}</span>
           <strong>${actual}分</strong>
         </div>
         <div class="history-score-diff ${diffClass}">${diffText}</div>

@@ -220,6 +220,25 @@ func BuildExportRow(s models.StudentSurvey) []string {
 	if s.Part3Score != nil {
 		scoreText = fmt.Sprintf("%d/5", *s.Part3Score)
 	}
+	teacherScore := "未录入"
+	if s.TeacherScore != nil {
+		teacherScore = fmt.Sprintf("%d分", *s.TeacherScore)
+	}
+	teacherNote := "无"
+	if s.TeacherNote != nil && strings.TrimSpace(*s.TeacherNote) != "" {
+		teacherNote = *s.TeacherNote
+	}
+	finalActualScore := "待评分"
+	if s.ActualScore != nil {
+		finalActualScore = fmt.Sprintf("%d分", *s.ActualScore)
+	}
+	scoreSource := "无"
+	switch s.ActualScoreSource {
+	case "teacher":
+		scoreSource = "教师评分"
+	case "part3":
+		scoreSource = "第三部分小测"
+	}
 
 	lastSubmitted := s.UpdatedAt
 	return []string{
@@ -237,6 +256,10 @@ func BuildExportRow(s models.StudentSurvey) []string {
 		utils.TruncateCell(utils.ValueOr(part3Answers["q4"], "未提交")),
 		utils.TruncateCell(utils.ValueOr(part3Answers["q5"], "未提交")),
 		utils.TruncateCell(scoreText),
+		utils.TruncateCell(teacherScore),
+		utils.TruncateCell(teacherNote),
+		utils.TruncateCell(finalActualScore),
+		utils.TruncateCell(scoreSource),
 		utils.TruncateCell(actualScore),
 		utils.TruncateCell(predictedScore),
 		utils.TruncateCell(part4Q2Answer),

@@ -81,20 +81,25 @@ type Question struct {
 
 // StudentSurvey holds a single student's answers.
 type StudentSurvey struct {
-	ID           int                      `json:"id"`
-	CourseID     int                      `json:"course_id"`
-	StudentID    string                   `json:"student_id"`
-	StudentName  string                   `json:"student_name"`
-	ClassName    string                   `json:"class_name"`
-	Part1        json.RawMessage          `json:"part1_answers"`
-	Part2        *string                  `json:"part2_answer"`
-	Part3        json.RawMessage          `json:"part3_answers"`
-	Part3Score   *int                     `json:"part3_score"`
-	Part3Results []map[string]interface{} `json:"part3_results,omitempty"`
-	Part4        json.RawMessage          `json:"part4_answers"`
-	SubmittedAt  *string                  `json:"submitted_at"`
-	CreatedAt    string                   `json:"created_at"`
-	UpdatedAt    string                   `json:"updated_at"`
+	ID                    int                      `json:"id"`
+	CourseID              int                      `json:"course_id"`
+	StudentID             string                   `json:"student_id"`
+	StudentName           string                   `json:"student_name"`
+	ClassName             string                   `json:"class_name"`
+	Part1                 json.RawMessage          `json:"part1_answers"`
+	Part2                 *string                  `json:"part2_answer"`
+	Part3                 json.RawMessage          `json:"part3_answers"`
+	Part3Score            *int                     `json:"part3_score"`
+	TeacherScore          *int                     `json:"teacher_score"`
+	TeacherNote           *string                  `json:"teacher_score_note"`
+	TeacherScoreUpdatedAt *string                  `json:"teacher_score_updated_at"`
+	ActualScore           *int                     `json:"actual_score"`
+	ActualScoreSource     string                   `json:"actual_score_source"`
+	Part3Results          []map[string]interface{} `json:"part3_results,omitempty"`
+	Part4                 json.RawMessage          `json:"part4_answers"`
+	SubmittedAt           *string                  `json:"submitted_at"`
+	CreatedAt             string                   `json:"created_at"`
+	UpdatedAt             string                   `json:"updated_at"`
 }
 
 // CompletionStats tracks how many students have finished a part.
@@ -143,27 +148,34 @@ type Part2ResponseInput struct {
 
 // HistoryScore is used by the student history list.
 type HistoryScore struct {
-	CourseName     string `json:"courseName"`
-	LessonNumber   int    `json:"lessonNumber"`
-	ActualScore    int    `json:"actualScore"`
-	PredictedScore int    `json:"predictedScore"`
+	CourseName        string  `json:"courseName"`
+	LessonNumber      int     `json:"lessonNumber"`
+	ActualScore       *int    `json:"actualScore"`
+	ActualScoreSource string  `json:"actualScoreSource"`
+	TeacherScoreNote  *string `json:"teacherScoreNote,omitempty"`
+	PredictedScore    int     `json:"predictedScore"`
 }
 
 // StudentHistoryDetail is a single historical lesson record.
 type StudentHistoryDetail struct {
-	CourseID    int             `json:"course_id"`
-	CourseName  string          `json:"course_name"`
-	LessonNo    int             `json:"lesson_number"`
-	StudentID   string          `json:"student_id"`
-	StudentName string          `json:"student_name"`
-	ClassName   string          `json:"class_name"`
-	Part1       json.RawMessage `json:"part1_answers"`
-	Part2       *string         `json:"part2_answer"`
-	Part3       json.RawMessage `json:"part3_answers"`
-	Part3Score  *int            `json:"part3_score"`
-	Part4       json.RawMessage `json:"part4_answers"`
-	SubmittedAt *string         `json:"submitted_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	CourseID              int             `json:"course_id"`
+	CourseName            string          `json:"course_name"`
+	LessonNo              int             `json:"lesson_number"`
+	StudentID             string          `json:"student_id"`
+	StudentName           string          `json:"student_name"`
+	ClassName             string          `json:"class_name"`
+	Part1                 json.RawMessage `json:"part1_answers"`
+	Part2                 *string         `json:"part2_answer"`
+	Part3                 json.RawMessage `json:"part3_answers"`
+	Part3Score            *int            `json:"part3_score"`
+	TeacherScore          *int            `json:"teacher_score"`
+	TeacherNote           *string         `json:"teacher_score_note"`
+	TeacherScoreUpdatedAt *string         `json:"teacher_score_updated_at"`
+	ActualScore           *int            `json:"actual_score"`
+	ActualScoreSource     string          `json:"actual_score_source"`
+	Part4                 json.RawMessage `json:"part4_answers"`
+	SubmittedAt           *string         `json:"submitted_at"`
+	UpdatedAt             string          `json:"updated_at"`
 }
 
 // QuestionRate is used in part-3 statistics.

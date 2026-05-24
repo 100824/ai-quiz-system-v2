@@ -25,6 +25,15 @@ function isPartEnabled(part) {
   return currentPartSettings[String(part)] !== false && currentPartSettings[part] !== false;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function formatStageLabel(stage) {
   return Number(stage) === 0 ? '准备环节' : `第${stage}部分`;
 }
@@ -613,11 +622,30 @@ async function loadStats() {
       // 学生列表
       currentStatsStudents = Array.isArray(stats.students) ? stats.students : [];
       html += '<div class="stats-section"><h4>学生完成情况</h4>';
-      html += '<table class="stats-table"><thead><tr><th>班级</th><th>姓名</th><th>完成状态</th><th>第三部分得分</th><th>操作</th></tr></thead><tbody>';
+      html += '<p style="color: #666; margin-bottom: 12px;">教师评分会作为学生历史页的实际分优先展示，不会覆盖第三部分小测分。</p>';
+      html += '<table class="stats-table"><thead><tr><th>班级</th><th>姓名</th><th>完成状态</th><th>第三部分得分</th><th>教师评分</th><th>最终实际分</th><th>备注</th><th>操作</th></tr></thead><tbody>';
       currentStatsStudents.forEach((s, index) => {
         const status = s.part4_answers ? '已完成全部' : s.part3_answers ? '完成到第三部分' : s.part2_answer ? '完成到第二部分' : s.part1_answers ? '完成到第一部分' : '未开始';
         const score = s.part3_score !== null ? `${s.part3_score}/5` : '未完成';
-        html += `<tr><td>${s.class_name}</td><td>${s.student_name}</td><td>${status}</td><td>${score}</td><td><button class="btn btn-sm" onclick="showStudentDetailByIndex(${index})">查看详情</button></td></tr>`;
+        const teacherScore = s.teacher_score !== null && s.teacher_score !== undefined ? s.teacher_score : '';
+        const actualScore = s.actual_score !== null && s.actual_score !== undefined ? `${s.actual_score}/5` : '待评分';
+        const sourceLabel = s.actual_score_source === 'teacher' ? '教师评分' : (s.actual_score_source === 'part3' ? '小测' : '无');
+        const note = s.teacher_score_note || '';
+        html += `
+          <tr>
+            <td>${escapeHtml(s.class_name)}</td>
+            <td>${escapeHtml(s.student_name)}</td>
+            <td>${status}</td>
+            <td>${score}</td>
+            <td><input id="teacher-score-${index}" type="number" min="0" max="5" step="1" value="${teacherScore}" style="width: 72px; padding: 6px 8px;"></td>
+            <td>${actualScore}<br><span style="color: #888; font-size: 12px;">${sourceLabel}</span></td>
+            <td><input id="teacher-score-note-${index}" type="text" value="${escapeHtml(note)}" placeholder="可选" style="width: 150px; padding: 6px 8px;"></td>
+            <td>
+              <button class="btn btn-sm" onclick="saveTeacherScore(${index})">保存评分</button>
+              <button class="btn btn-sm" onclick="showStudentDetailByIndex(${index})">查看详情</button>
+            </td>
+          </tr>
+        `;
       });
       html += '</tbody></table></div>';
       
@@ -1058,11 +1086,15 @@ function showStudentDetailByIndex(index) {
 
 // 展示学生答题详情
 function showStudentDetail(student) {
+  const actualScore = student.actual_score !== null && student.actual_score !== undefined ? `${student.actual_score}/5` : '待评分';
+  const actualSource = student.actual_score_source === 'teacher' ? '教师评分' : (student.actual_score_source === 'part3' ? '第三部分小测' : '无');
   let html = '';
   html += `<div style="margin-bottom: 20px; padding: 15px; background: #f5f7fa; border-radius: 8px;">
     <h4 style="margin: 0 0 10px 0;">基本信息</h4>
     <p><strong>班级：</strong>${student.class_name}</p>
     <p><strong>姓名：</strong>${student.student_name}</p>
+    <p><strong>最终实际分：</strong>${actualScore}（${actualSource}）</p>
+    <p><strong>教师评分备注：</strong>${student.teacher_score_note || '无'}</p>
     <p><strong>提交时间：</strong>${student.submitted_at || '未完成全部提交'}</p>
   </div>`;
 
@@ -1187,6 +1219,48 @@ async function exportStats() {
   }
   const url = `${API_BASE}/teacher/stats/${courseId}/export${className ? `?className=${encodeURIComponent(className)}` : ""}`;
   window.open(url, "_blank");
+}
+
+async function saveTeacherScore(index) {
+  const student = currentStatsStudents[index];
+  const courseId = document.getElementById("statsCourseSelect").value;
+  if (!student || !courseId) {
+    alert('缺少学生或课程信息');
+    return;
+  }
+
+  const scoreInput = document.getElementById(`teacher-score-${index}`);
+  const noteInput = document.getElementById(`teacher-score-note-${index}`);
+  const rawScore = scoreInput ? scoreInput.value.trim() : '';
+  let teacherScore = null;
+  if (rawScore !== '') {
+    teacherScore = Number(rawScore);
+    if (!Number.isInteger(teacherScore) || teacherScore < 0 || teacherScore > 5) {
+      alert('教师评分需填写 0-5 的整数，清空则表示取消教师评分');
+      return;
+    }
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/teacher/manual-score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        courseId: Number(courseId),
+        studentId: student.student_id,
+        teacherScore,
+        note: noteInput ? noteInput.value.trim() : ''
+      })
+    });
+    const data = await safeFetchJson(res);
+    if (!data.success) {
+      throw new Error(data.error || '保存失败');
+    }
+    alert('教师评分已保存');
+    await loadStats();
+  } catch (error) {
+    alert('保存教师评分失败: ' + error.message);
+  }
 }
 
 // 格式化答题指引文本
