@@ -1195,12 +1195,6 @@ function renderStudentProgress(partSubmittedMap, currentStudentStage) {
   }).join('');
 }
 
-function updateHistoryEntryVisibility() {
-  const historyEntryWrap = document.getElementById('history-entry-wrap');
-  if (!historyEntryWrap) return;
-  historyEntryWrap.classList.toggle('hidden', !isPartEnabled(4));
-}
-
 // 更新UI
 function updateUI() {
   // 隐藏所有部分
@@ -1231,7 +1225,6 @@ function updateUI() {
     4: !!part4Submitted
   };
 
-  updateHistoryEntryVisibility();
   const currentStudentStage = getNextRequiredPart(partSubmittedMap);
   renderStudentProgress(partSubmittedMap, currentStudentStage);
   
