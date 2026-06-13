@@ -18,6 +18,34 @@ let currentPart2Questions = [];
 const API_BASE = window.APP_CONFIG?.apiBase || `${window.location.protocol}//${window.location.hostname}:8080/api`;
 let studentAlertCleanup = null;
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderTextWithImages(value) {
+  const text = String(value ?? '');
+  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;
+  let html = '';
+  let lastIndex = 0;
+  let match;
+
+  while ((match = imagePattern.exec(text)) !== null) {
+    html += escapeHtml(text.slice(lastIndex, match.index));
+    const alt = match[1] || '题目图片';
+    const url = match[2];
+    html += `<img class="question-inline-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" loading="lazy">`;
+    lastIndex = match.index + match[0].length;
+  }
+
+  html += escapeHtml(text.slice(lastIndex));
+  return html.replace(/\n/g, '<br>');
+}
+
 function inferStudentAlertType(message) {
   const text = String(message || '');
   if (text.includes('成功') || text.includes('完成') || text.includes('太棒了') || text.includes('得了')) {
@@ -985,13 +1013,13 @@ function renderQuestions(part, questions) {
         <section class="question-item student-quiz-block student-quiz-block--quiz">
           <div class="student-quiz-head">
             <span class="student-quiz-tag">答题关卡 ${qNum}</span>
-            <h3>${qNum}. ${q.question_text}</h3>
+            <h3>${qNum}. ${renderTextWithImages(q.question_text)}</h3>
           </div>
           <div class="options" id="q${qNum}">
             ${options.map((opt, i) => `
               <div class="option">
                 <input type="radio" id="q${qNum}-${i}" name="q${qNum}" value="${opt.split('.')[0]}">
-                <label for="q${qNum}-${i}">${opt}</label>
+                <label for="q${qNum}-${i}">${renderTextWithImages(opt)}</label>
               </div>
             `).join('')}
           </div>
@@ -1117,13 +1145,13 @@ function restoreSubmittedData() {
         html += `
           <div class="answer-item ${res.isCorrect ? 'correct' : 'incorrect'}">
             <h4>
-              ${index + 1}. ${res.question}
+              ${index + 1}. ${renderTextWithImages(res.question)}
               <span class="${res.isCorrect ? 'correct-mark' : 'incorrect-mark'}">
                 ${res.isCorrect ? '✅ 正确' : '❌ 错误'}
               </span>
             </h4>
-            <p>你的答案：<strong class="${res.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${res.studentAnswer}</strong></p>
-            <p>正确答案：<strong class="student-answer-text--correct">${res.correctAnswer}</strong></p>
+            <p>你的答案：<strong class="${res.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${escapeHtml(res.studentAnswer)}</strong></p>
+            <p>正确答案：<strong class="student-answer-text--correct">${escapeHtml(res.correctAnswer)}</strong></p>
             <p class="explanation"><span class="label">解析：</span><span class="content">${res.explanation || ''}</span></p>
           </div>
         `;
@@ -1799,13 +1827,13 @@ async function submitPart3() {
         html += `
           <div class="answer-item ${res.isCorrect ? 'correct' : 'incorrect'}">
             <h4>
-              ${index + 1}. ${res.question}
+              ${index + 1}. ${renderTextWithImages(res.question)}
               <span class="${res.isCorrect ? 'correct-mark' : 'incorrect-mark'}">
                 ${res.isCorrect ? '✅ 正确' : '❌ 错误'}
               </span>
             </h4>
-            <p>你的答案：<strong class="${res.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${res.studentAnswer}</strong></p>
-            <p>正确答案：<strong class="student-answer-text--correct">${res.correctAnswer}</strong></p>
+            <p>你的答案：<strong class="${res.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${escapeHtml(res.studentAnswer)}</strong></p>
+            <p>正确答案：<strong class="student-answer-text--correct">${escapeHtml(res.correctAnswer)}</strong></p>
             <p class="explanation"><span class="label">解析：</span><span class="content">${res.explanation || ''}</span></p>
           </div>
         `;

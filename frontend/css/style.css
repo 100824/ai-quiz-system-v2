@@ -447,6 +447,37 @@ header h1 {
   background: #f0f5fa;
 }
 
+.question-inline-image {
+  display: block;
+  max-width: min(100%, 360px);
+  max-height: 240px;
+  object-fit: contain;
+  margin: 10px 0;
+  border-radius: 14px;
+  border: 1px solid #d0e4f5;
+  background: #f7fbff;
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.12);
+}
+
+.option .question-inline-image {
+  max-width: min(100%, 280px);
+  max-height: 180px;
+}
+
+.question-preview-options {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.question-preview-options span {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f5faff;
+  border: 1px solid #d0e4f5;
+}
+
 .mt-2 {
   margin-top: 12px;
 }

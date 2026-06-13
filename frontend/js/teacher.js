@@ -34,6 +34,52 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function renderTextWithImages(value) {
+  const text = String(value ?? '');
+  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;
+  let html = '';
+  let lastIndex = 0;
+  let match;
+
+  while ((match = imagePattern.exec(text)) !== null) {
+    html += escapeHtml(text.slice(lastIndex, match.index));
+    const alt = match[1] || '题目图片';
+    const url = match[2];
+    html += `<img class="question-inline-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" loading="lazy">`;
+    lastIndex = match.index + match[0].length;
+  }
+
+  html += escapeHtml(text.slice(lastIndex));
+  return html.replace(/\n/g, '<br>');
+}
+
+function insertTextAtCursor(inputEl, text) {
+  if (!inputEl) return;
+  const start = inputEl.selectionStart ?? inputEl.value.length;
+  const end = inputEl.selectionEnd ?? inputEl.value.length;
+  inputEl.value = `${inputEl.value.slice(0, start)}${text}${inputEl.value.slice(end)}`;
+  const nextPosition = start + text.length;
+  inputEl.focus();
+  inputEl.setSelectionRange?.(nextPosition, nextPosition);
+}
+
+function insertQuestionImage(target, button) {
+  const url = prompt('请输入图片地址（建议使用 http/https 链接）：');
+  if (!url) return;
+  const imageUrl = url.trim();
+  if (!/^https?:\/\/\S+$/i.test(imageUrl)) {
+    alert('请输入有效的 http/https 图片地址');
+    return;
+  }
+  const imageMarkdown = `![图片](${imageUrl})`;
+  if (target === 'option') {
+    const input = button?.closest('.option-item')?.querySelector('.option-input');
+    insertTextAtCursor(input, imageMarkdown);
+    return;
+  }
+  insertTextAtCursor(document.getElementById('editQuestionText'), imageMarkdown);
+}
+
 function formatStageLabel(stage) {
   return Number(stage) === 0 ? '准备环节' : `第${stage}部分`;
 }
@@ -424,7 +470,7 @@ async function loadQuestions() {
               options = JSON.parse(options);
             }
             if (Array.isArray(options)) {
-              optionsText = `<p>选项: ${options.join(' | ')}</p>`;
+              optionsText = `<div class="question-preview-options"><strong>选项：</strong>${options.map((opt) => `<span>${renderTextWithImages(opt)}</span>`).join('')}</div>`;
             }
           } catch (e) {
             console.error('解析选项失败:', e);
@@ -432,7 +478,7 @@ async function loadQuestions() {
         }
         return `
         <div class="question-item">
-          <h4>${q.id}. ${q.question_text}</h4>
+          <h4>${q.id}. ${renderTextWithImages(q.question_text)}</h4>
           <p>状态: <strong style="color: ${q.enabled === false ? '#f56c6c' : '#67c23a'};">${q.enabled === false ? '已关闭' : '已开启'}</strong></p>
           ${q.question_type === 'text' ? `<p>颜色标注: <strong style="color: ${q.annotation_enabled === false ? '#909399' : '#409eff'};">${q.annotation_enabled === false ? '关闭' : '开启'}</strong></p>` : ''}
           ${optionsText}
@@ -747,7 +793,8 @@ function addOption(value = '') {
   optionDiv.style = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
   optionDiv.innerHTML = `
     <span style="min-width: 30px;">${optionIndex}.</span>
-    <input type="text" class="option-input" value="${value.replace(/"/g, '&quot;')}" placeholder="请输入选项内容" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+    <input type="text" class="option-input" value="${escapeHtml(value)}" placeholder="请输入选项内容" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+    <button type="button" class="btn btn-sm" onclick="insertQuestionImage('option', this)" style="padding: 6px 12px;">插入图片</button>
     <button type="button" class="btn btn-sm btn-danger" onclick="removeOption(this)" style="padding: 6px 12px;">- 删除</button>
   `;
   optionsList.appendChild(optionDiv);
