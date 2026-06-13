@@ -65,6 +65,7 @@ func main() {
 	mux.HandleFunc("POST /api/teacher/part-settings/{courseId}", h.HandleSetPartSettings)
 	mux.HandleFunc("GET /api/teacher/stats/{courseId}", h.HandleTeacherStats)
 	mux.HandleFunc("GET /api/teacher/stats/export-all", h.HandleExportAllStats)
+	mux.HandleFunc("GET /api/teacher/stats/export-prediction-summary", h.HandleExportPredictionSummary)
 	mux.HandleFunc("GET /api/teacher/stats/{courseId}/export", h.HandleExportStats)
 	mux.HandleFunc("POST /api/teacher/manual-score", h.HandleTeacherManualScore)
 	mux.HandleFunc("POST /api/student/validate", h.HandleStudentValidate)

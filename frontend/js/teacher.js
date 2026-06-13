@@ -1226,6 +1226,12 @@ async function exportAllStats() {
   window.open(url, "_blank");
 }
 
+async function exportPredictionSummary() {
+  const className = document.getElementById("statsClassSelect").value;
+  const url = `${API_BASE}/teacher/stats/export-prediction-summary${className ? `?className=${encodeURIComponent(className)}` : ""}`;
+  window.open(url, "_blank");
+}
+
 async function saveTeacherScore(index) {
   const student = currentStatsStudents[index];
   const courseId = document.getElementById("statsCourseSelect").value;

@@ -604,7 +604,7 @@ header h1 {
 
 .student-login-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(220px, 2fr) auto;
   gap: 12px;
   align-items: center;
   margin-top: 10px;
@@ -615,22 +615,22 @@ header h1 {
 }
 
 .student-login-history-btn {
-  min-height: 50px;
+  min-height: 58px;
   padding: 0 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(74, 111, 165, 0.22);
-  background: rgba(255, 255, 255, 0.88);
-  color: #4a6fa5;
+  border-radius: 20px;
+  border: 1px solid rgba(82, 199, 138, 0.38);
+  background: #e8f8ef;
+  color: #207a4a;
   font-size: 15px;
   font-weight: 800;
   white-space: nowrap;
-  box-shadow: 0 12px 24px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 12px 24px rgba(82, 199, 138, 0.14);
 }
 
 .student-login-history-btn:hover {
-  background: #eef6ff;
+  background: #d9f4e5;
   transform: translateY(-1px);
-  box-shadow: 0 16px 28px rgba(59, 130, 246, 0.18);
+  box-shadow: 0 16px 28px rgba(82, 199, 138, 0.2);
 }
 
 .student-hero-card .input-group label {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -491,6 +492,22 @@ func (h *Handler) HandleExportAllStats(w http.ResponseWriter, r *http.Request) {
 	h.writeStatsExcel(w, students, filename)
 }
 
+// HandleExportPredictionSummary generates a student-level historical prediction summary.
+func (h *Handler) HandleExportPredictionSummary(w http.ResponseWriter, r *http.Request) {
+	className := r.URL.Query().Get("className")
+	students, err := h.repo.GetAllStudentSurveysAcrossCourses(className)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	target := "全部班级"
+	if strings.TrimSpace(className) != "" {
+		target = className
+	}
+	filename := fmt.Sprintf("学生历史预测汇总_%s_%s.xlsx", target, time.Now().Format("2006-01-02"))
+	h.writePredictionSummaryExcel(w, students, filename)
+}
+
 func (h *Handler) writeStatsExcel(w http.ResponseWriter, students []models.StudentSurvey, filename string) {
 	file := excelize.NewFile()
 	sheet := "答题记录"
@@ -521,6 +538,139 @@ func (h *Handler) writeStatsExcel(w http.ResponseWriter, students []models.Stude
 	if _, err := file.WriteTo(w); err != nil {
 		log.Printf("write export file: %v", err)
 	}
+}
+
+type predictionSummaryRow struct {
+	ClassName          string
+	StudentName        string
+	ParticipatedCount  int
+	PredictionCount    int
+	ScoredCount        int
+	CorrectGuessCount  int
+	HighGuessCount     int
+	LowGuessCount      int
+	UnscoredCount      int
+	PredictionScoreSum int
+	ActualScoreSum     int
+	LastSubmitted      string
+}
+
+func (h *Handler) writePredictionSummaryExcel(w http.ResponseWriter, students []models.StudentSurvey, filename string) {
+	file := excelize.NewFile()
+	sheet := "学生预测汇总"
+	file.SetSheetName("Sheet1", sheet)
+	headers := []string{
+		"班级", "姓名", "猜对次数", "猜高次数", "猜低次数",
+		"参与课程数", "有预测课程数", "已评分课程数", "未评分次数", "平均预测分", "平均实际分", "最近提交时间",
+	}
+	for i, hText := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		file.SetCellValue(sheet, cell, hText)
+	}
+
+	rows := buildPredictionSummaryRows(students)
+	for rowIndex, item := range rows {
+		record := []interface{}{
+			item.ClassName,
+			item.StudentName,
+			item.CorrectGuessCount,
+			item.HighGuessCount,
+			item.LowGuessCount,
+			item.ParticipatedCount,
+			item.PredictionCount,
+			item.ScoredCount,
+			item.UnscoredCount,
+			formatAverageScore(item.PredictionScoreSum, item.PredictionCount),
+			formatAverageScore(item.ActualScoreSum, item.ScoredCount),
+			item.LastSubmitted,
+		}
+		for colIndex, value := range record {
+			cell, _ := excelize.CoordinatesToCellName(colIndex+1, rowIndex+2)
+			file.SetCellValue(sheet, cell, value)
+		}
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", utils.URLEncode(filename)))
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.WriteHeader(http.StatusOK)
+	if _, err := file.WriteTo(w); err != nil {
+		log.Printf("write prediction summary export file: %v", err)
+	}
+}
+
+func buildPredictionSummaryRows(students []models.StudentSurvey) []predictionSummaryRow {
+	summaries := map[string]*predictionSummaryRow{}
+	order := []string{}
+	for _, st := range students {
+		key := st.ClassName + "\x00" + st.StudentName
+		item, ok := summaries[key]
+		if !ok {
+			item = &predictionSummaryRow{ClassName: st.ClassName, StudentName: st.StudentName}
+			summaries[key] = item
+			order = append(order, key)
+		}
+		item.ParticipatedCount++
+		if st.UpdatedAt > item.LastSubmitted {
+			item.LastSubmitted = st.UpdatedAt
+		}
+
+		predictedScore, hasPrediction := extractPredictionScore(st.Part1)
+		if !hasPrediction {
+			continue
+		}
+		item.PredictionCount++
+		item.PredictionScoreSum += predictedScore
+		if st.ActualScore == nil {
+			item.UnscoredCount++
+			continue
+		}
+		item.ScoredCount++
+		item.ActualScoreSum += *st.ActualScore
+		switch {
+		case predictedScore > *st.ActualScore:
+			item.HighGuessCount++
+		case predictedScore < *st.ActualScore:
+			item.LowGuessCount++
+		default:
+			item.CorrectGuessCount++
+		}
+	}
+
+	sortPredictionSummaryOrder(order, summaries)
+	rows := make([]predictionSummaryRow, 0, len(order))
+	for _, key := range order {
+		rows = append(rows, *summaries[key])
+	}
+	return rows
+}
+
+func extractPredictionScore(raw json.RawMessage) (int, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var answers models.Part1Answers
+	if err := json.Unmarshal(raw, &answers); err != nil {
+		return 0, false
+	}
+	return answers.PredictionScore, true
+}
+
+func formatAverageScore(sum, count int) string {
+	if count == 0 {
+		return "无"
+	}
+	return fmt.Sprintf("%.1f", float64(sum)/float64(count))
+}
+
+func sortPredictionSummaryOrder(order []string, summaries map[string]*predictionSummaryRow) {
+	sort.SliceStable(order, func(i, j int) bool {
+		left := summaries[order[i]]
+		right := summaries[order[j]]
+		if left.ClassName != right.ClassName {
+			return left.ClassName < right.ClassName
+		}
+		return left.StudentName < right.StudentName
+	})
 }
 
 // HandleTeacherManualScore saves or clears a teacher-entered score for a student.
