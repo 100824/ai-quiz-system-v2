@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>人工智能学习平台 - 学生端</title>
-  <link rel="stylesheet" href="css/style.css?v=2026050103">
+  <link rel="stylesheet" href="css/style.css?v=2026061301">
 </head>
 <body class="student-page">
   <div class="container student-shell">
@@ -44,7 +44,10 @@
         <div id="name-dropdown" style="position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; display: none; margin-top: 4px;">
         </div>
       </div>
-      <button class="btn btn-full btn-success" onclick="startSurvey()">开始答题 ✨</button>
+      <div class="student-login-actions">
+        <button class="btn btn-full btn-success" onclick="startSurvey()">开始答题 ✨</button>
+        <button class="btn student-login-history-btn" onclick="openHistoryFromLogin()">我的历史课堂答题数据</button>
+      </div>
     </div>
     
     <!-- 问卷页面 -->
@@ -230,6 +233,6 @@
   </div>
   
   <script src="js/config.js?v=2026042902"></script>
-  <script src="js/student.js?v=2026060401"></script>
+  <script src="js/student.js?v=2026061301"></script>
 </body>
 </html>

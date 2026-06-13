@@ -338,11 +338,20 @@ function openHistoryPage() {
     window.showStudentAlert?.('未找到当前学生信息', 'error');
     return;
   }
-  const params = new URLSearchParams({
+  goToHistoryPage({
     studentId: currentStudentId,
-    courseId: String(currentCourseId || ''),
+    courseId: currentCourseId,
     studentName: document.getElementById('student-name')?.value?.trim() || '',
     className: currentClassName || ''
+  });
+}
+
+function goToHistoryPage({ studentId, courseId, studentName, className }) {
+  const params = new URLSearchParams({
+    studentId,
+    courseId: String(courseId || ''),
+    studentName: studentName || '',
+    className: className || ''
   });
   window.location.href = `student-history.html?${params.toString()}`;
 }
@@ -719,6 +728,62 @@ async function startSurvey() {
     document.getElementById('login-page').classList.remove('hidden');
     document.getElementById('survey-page').classList.add('hidden');
     // 显示具体错误信息方便排查
+    window.showStudentAlert?.(`错误详情：${error.message || '网络错误，请重试！'}`, 'error');
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function openHistoryFromLogin() {
+  const studentName = document.getElementById('student-name').value.trim();
+  const className = document.getElementById('class-select').value;
+
+  if (!studentName) {
+    window.showStudentAlert?.('请输入你的姓名！', 'warning');
+    return;
+  }
+
+  if (!className) {
+    window.showStudentAlert?.('请选择你的班级！', 'warning');
+    return;
+  }
+
+  try {
+    showLoading(true);
+    const validateRes = await fetch(`${API_BASE}/student/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        courseId: currentCourseId,
+        className,
+        studentName
+      })
+    });
+
+    if (!validateRes.ok) {
+      throw new Error(`验证请求失败，状态码: ${validateRes.status}`);
+    }
+
+    const validateResult = await safeFetchJson(validateRes);
+    if (!validateResult.success || !validateResult.data || !validateResult.data.valid) {
+      const errMsg = validateResult && validateResult.data && validateResult.data.message ? validateResult.data.message : '验证失败，请联系老师';
+      window.showStudentAlert?.(errMsg, 'error');
+      return;
+    }
+
+    currentStudentName = studentName;
+    currentClassName = className;
+    currentStudentId = `${className}_${studentName}`;
+    currentCourseId = validateResult.data.courseId || currentCourseId;
+
+    goToHistoryPage({
+      studentId: currentStudentId,
+      courseId: currentCourseId,
+      studentName,
+      className
+    });
+  } catch (error) {
+    console.error('打开历史答题数据失败:', error);
     window.showStudentAlert?.(`错误详情：${error.message || '网络错误，请重试！'}`, 'error');
   } finally {
     showLoading(false);
