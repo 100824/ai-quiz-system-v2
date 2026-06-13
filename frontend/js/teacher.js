@@ -53,6 +53,93 @@ function renderTextWithImages(value) {
   return html.replace(/\n/g, '<br>');
 }
 
+function extractImageTokens(value) {
+  const text = String(value ?? '');
+  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/api\/uploads\/images\/[^)\s]+)\)/g;
+  const images = [];
+  const plainText = text.replace(imagePattern, (_token, alt, url) => {
+    images.push({ alt: alt || '图片', url });
+    return '';
+  }).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { plainText, images };
+}
+
+function composeImageText(plainText, images) {
+  const imageText = (images || [])
+    .filter((item) => item && item.url)
+    .map((item) => `![${item.alt || '图片'}](${item.url})`)
+    .join('\n');
+  return [String(plainText || '').trim(), imageText].filter(Boolean).join('\n');
+}
+
+function getImageAwareData(inputEl) {
+  if (!inputEl) return { plainText: '', images: [] };
+  return {
+    plainText: inputEl.value,
+    images: JSON.parse(inputEl.dataset.images || '[]')
+  };
+}
+
+function setImageAwareData(inputEl, value, previewEl) {
+  if (!inputEl) return;
+  const { plainText, images } = extractImageTokens(value);
+  inputEl.value = plainText;
+  inputEl.dataset.images = JSON.stringify(images);
+  renderImagePreview(inputEl, previewEl);
+}
+
+function getImageAwareValue(inputEl) {
+  const { plainText, images } = getImageAwareData(inputEl);
+  return composeImageText(plainText, images);
+}
+
+function renderImagePreview(inputEl, previewEl) {
+  if (!inputEl || !previewEl) return;
+  const { images } = getImageAwareData(inputEl);
+  if (!images.length) {
+    previewEl.innerHTML = '';
+    return;
+  }
+  previewEl.innerHTML = images.map((image, index) => `
+    <div class="question-edit-image-card">
+      <img src="${escapeHtml(resolveImageUrl(image.url))}" alt="${escapeHtml(image.alt || '题目图片')}" loading="lazy">
+      <div class="question-edit-image-card__body">
+        <strong>图片 ${index + 1}</strong>
+        <span>${escapeHtml(image.url)}</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-danger" onclick="removeEditorImage(this, ${index})">删除</button>
+    </div>
+  `).join('');
+}
+
+function getPreviewForInput(inputEl) {
+  if (!inputEl) return null;
+  if (inputEl.id === 'editQuestionText') {
+    return document.getElementById('questionImagePreview');
+  }
+  return inputEl.closest('.option-item')?.querySelector('.option-image-preview') || null;
+}
+
+function addEditorImage(inputEl, image) {
+  if (!inputEl || !image?.url) return;
+  const data = getImageAwareData(inputEl);
+  data.images.push({ alt: image.alt || '图片', url: image.url });
+  inputEl.dataset.images = JSON.stringify(data.images);
+  renderImagePreview(inputEl, getPreviewForInput(inputEl));
+}
+
+function removeEditorImage(button, index) {
+  const previewEl = button?.closest('.question-edit-image-list');
+  const inputEl = previewEl?.dataset.target === 'question'
+    ? document.getElementById('editQuestionText')
+    : previewEl?.closest('.option-item')?.querySelector('.option-input');
+  if (!inputEl) return;
+  const data = getImageAwareData(inputEl);
+  data.images.splice(index, 1);
+  inputEl.dataset.images = JSON.stringify(data.images);
+  renderImagePreview(inputEl, previewEl);
+}
+
 function resolveImageUrl(url) {
   if (!url || /^https?:\/\//i.test(url)) return url;
   if (url.startsWith('/api/')) {
@@ -111,13 +198,12 @@ async function uploadImageFile(file, target, button) {
       alert(data.error || '上传失败');
       return;
     }
-    const imageMarkdown = `![图片](${data.data.url})`;
     if (target === 'option') {
       const input = button?.closest('.option-item')?.querySelector('.option-input');
-      insertTextAtCursor(input, imageMarkdown);
+      addEditorImage(input, { alt: '图片', url: data.data.url });
       return;
     }
-    insertTextAtCursor(document.getElementById('editQuestionText'), imageMarkdown);
+    addEditorImage(document.getElementById('editQuestionText'), { alt: '图片', url: data.data.url });
   } catch (error) {
     alert('上传失败: ' + error.message);
   }
@@ -821,6 +907,8 @@ function closeQuestionModal() {
   currentEditingQuestion = null;
   document.getElementById('editQuestionId').value = '';
   document.getElementById('editQuestionText').value = '';
+  document.getElementById('editQuestionText').dataset.images = '[]';
+  document.getElementById('questionImagePreview').innerHTML = '';
   document.getElementById('editQuestionType').value = 'single';
   document.getElementById('optionsList').innerHTML = '';
   document.getElementById('editCorrectAnswer').value = '';
@@ -831,16 +919,24 @@ function closeQuestionModal() {
 function addOption(value = '') {
   const optionsList = document.getElementById('optionsList');
   const optionIndex = optionsList.children.length + 1;
+  const parsed = extractImageTokens(value);
   const optionDiv = document.createElement('div');
   optionDiv.className = 'option-item';
-  optionDiv.style = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
   optionDiv.innerHTML = `
-    <span style="min-width: 30px;">${optionIndex}.</span>
-    <input type="text" class="option-input" value="${escapeHtml(value)}" placeholder="请输入选项内容" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
-    <button type="button" class="btn btn-sm" onclick="insertQuestionImage('option', this)" style="padding: 6px 12px;">上传图片</button>
-    <button type="button" class="btn btn-sm btn-danger" onclick="removeOption(this)" style="padding: 6px 12px;">- 删除</button>
+    <div class="option-edit-row">
+      <span class="option-edit-index">${optionIndex}.</span>
+      <input type="text" class="option-input image-aware-input" value="${escapeHtml(parsed.plainText)}" placeholder="请输入选项文字，例如 A. 数据" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+      <button type="button" class="btn btn-sm" onclick="insertQuestionImage('option', this)" style="padding: 6px 12px;">上传图片</button>
+      <button type="button" class="btn btn-sm btn-danger" onclick="removeOption(this)" style="padding: 6px 12px;">- 删除</button>
+    </div>
+    <div class="question-edit-image-list option-image-preview"></div>
   `;
   optionsList.appendChild(optionDiv);
+  const input = optionDiv.querySelector('.option-input');
+  const preview = optionDiv.querySelector('.option-image-preview');
+  preview.dataset.target = 'option';
+  input.dataset.images = JSON.stringify(parsed.images);
+  renderImagePreview(input, preview);
 }
 
 // 删除选项
@@ -853,7 +949,7 @@ function removeOption(btn) {
   optionItem.remove();
   // 重新排序号
   document.querySelectorAll('.option-item').forEach((item, index) => {
-    item.querySelector('span').textContent = `${index + 1}.`;
+    item.querySelector('.option-edit-index').textContent = `${index + 1}.`;
   });
 }
 
@@ -882,7 +978,12 @@ async function editQuestion(id) {
       
       // 填充表单
       document.getElementById('editQuestionId').value = id;
-      document.getElementById('editQuestionText').value = currentEditingQuestion.question_text || '';
+      setImageAwareData(
+        document.getElementById('editQuestionText'),
+        currentEditingQuestion.question_text || '',
+        document.getElementById('questionImagePreview')
+      );
+      document.getElementById('questionImagePreview').dataset.target = 'question';
       document.getElementById('editQuestionType').value = currentEditingQuestion.question_type || 'single';
       document.getElementById('editCorrectAnswer').value = currentEditingQuestion.correct_answer || '';
       document.getElementById('editExplanation').innerHTML = currentEditingQuestion.explanation || '';
@@ -986,7 +1087,7 @@ async function toggleQuestionEnabled(id, enabled) {
 // 保存题目
 async function saveQuestion() {
   const questionId = document.getElementById('editQuestionId').value;
-  const questionText = document.getElementById('editQuestionText').value.trim();
+  const questionText = getImageAwareValue(document.getElementById('editQuestionText')).trim();
   const questionType = document.getElementById('editQuestionType').value;
   const correctAnswer = document.getElementById('editCorrectAnswer').value.trim();
   const explanation = document.getElementById('editExplanation').innerHTML.trim();
@@ -1001,7 +1102,7 @@ async function saveQuestion() {
   let options = null;
   if (questionType !== 'text') {
     const optionInputs = document.querySelectorAll('.option-input');
-    options = Array.from(optionInputs).map(input => input.value.trim()).filter(v => v);
+    options = Array.from(optionInputs).map(input => getImageAwareValue(input).trim()).filter(v => v);
     if (options.length < 2) {
       alert('至少需要填写2个选项！');
       return;
