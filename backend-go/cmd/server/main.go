@@ -25,6 +25,11 @@ func main() {
 		log.Fatalf("create data dir: %v", err)
 	}
 
+	uploadsDir := filepath.Join(dataDir, "uploads", "images")
+	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
+		log.Fatalf("create uploads dir: %v", err)
+	}
+
 	dbPath := filepath.Join(dataDir, "quiz-system.db")
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -42,7 +47,7 @@ func main() {
 
 	repo := repository.NewRepository(db)
 	svc := service.NewService(repo)
-	h := handler.NewHandler(repo, svc)
+	h := handler.NewHandler(repo, svc, uploadsDir)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.HandleHealth)
@@ -77,6 +82,8 @@ func main() {
 	mux.HandleFunc("POST /api/student/{studentId}/part2", h.HandleStudentPart2)
 	mux.HandleFunc("POST /api/student/{studentId}/part3", h.HandleStudentPart3)
 	mux.HandleFunc("POST /api/student/{studentId}/part4", h.HandleStudentPart4)
+	mux.HandleFunc("POST /api/teacher/upload-image", h.HandleUploadImage)
+	mux.HandleFunc("GET /api/uploads/images/{filename}", h.HandleServeImage)
 
 	appHandler := middleware.WithCORS(middleware.WithLogging(mux))
 	port := utils.Getenv("PORT", "8080")

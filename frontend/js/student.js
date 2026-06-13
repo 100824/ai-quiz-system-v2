@@ -29,7 +29,7 @@ function escapeHtml(value) {
 
 function renderTextWithImages(value) {
   const text = String(value ?? '');
-  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;
+  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/api\/uploads\/images\/[^)\s]+)\)/g;
   let html = '';
   let lastIndex = 0;
   let match;
@@ -37,13 +37,21 @@ function renderTextWithImages(value) {
   while ((match = imagePattern.exec(text)) !== null) {
     html += escapeHtml(text.slice(lastIndex, match.index));
     const alt = match[1] || '题目图片';
-    const url = match[2];
+    const url = resolveImageUrl(match[2]);
     html += `<img class="question-inline-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" loading="lazy">`;
     lastIndex = match.index + match[0].length;
   }
 
   html += escapeHtml(text.slice(lastIndex));
   return html.replace(/\n/g, '<br>');
+}
+
+function resolveImageUrl(url) {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('/api/')) {
+    return `${API_BASE.replace(/\/api\/?$/, '')}${url}`;
+  }
+  return url;
 }
 
 function inferStudentAlertType(message) {

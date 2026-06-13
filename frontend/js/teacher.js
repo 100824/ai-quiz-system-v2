@@ -36,7 +36,7 @@ function escapeHtml(value) {
 
 function renderTextWithImages(value) {
   const text = String(value ?? '');
-  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;
+  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/api\/uploads\/images\/[^)\s]+)\)/g;
   let html = '';
   let lastIndex = 0;
   let match;
@@ -44,13 +44,21 @@ function renderTextWithImages(value) {
   while ((match = imagePattern.exec(text)) !== null) {
     html += escapeHtml(text.slice(lastIndex, match.index));
     const alt = match[1] || '题目图片';
-    const url = match[2];
+    const url = resolveImageUrl(match[2]);
     html += `<img class="question-inline-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" loading="lazy">`;
     lastIndex = match.index + match[0].length;
   }
 
   html += escapeHtml(text.slice(lastIndex));
   return html.replace(/\n/g, '<br>');
+}
+
+function resolveImageUrl(url) {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('/api/')) {
+    return `${API_BASE.replace(/\/api\/?$/, '')}${url}`;
+  }
+  return url;
 }
 
 function insertTextAtCursor(inputEl, text) {
@@ -64,20 +72,55 @@ function insertTextAtCursor(inputEl, text) {
 }
 
 function insertQuestionImage(target, button) {
-  const url = prompt('请输入图片地址（建议使用 http/https 链接）：');
-  if (!url) return;
-  const imageUrl = url.trim();
-  if (!/^https?:\/\/\S+$/i.test(imageUrl)) {
-    alert('请输入有效的 http/https 图片地址');
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg,image/png,image/gif,image/webp';
+  input.style.display = 'none';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) {
+      input.remove();
+      return;
+    }
+    try {
+      await uploadImageFile(file, target, button);
+    } finally {
+      input.remove();
+    }
+  };
+  document.body.appendChild(input);
+  input.click();
+}
+
+async function uploadImageFile(file, target, button) {
+  if (file.size > 5 * 1024 * 1024) {
+    alert('文件大小超过5MB限制');
     return;
   }
-  const imageMarkdown = `![图片](${imageUrl})`;
-  if (target === 'option') {
-    const input = button?.closest('.option-item')?.querySelector('.option-input');
-    insertTextAtCursor(input, imageMarkdown);
-    return;
+
+  const formData = new FormData();
+  formData.append('image', file);
+
+  try {
+    const res = await fetch(`${API_BASE}/teacher/upload-image`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await safeFetchJson(res);
+    if (!data.success) {
+      alert(data.error || '上传失败');
+      return;
+    }
+    const imageMarkdown = `![图片](${data.data.url})`;
+    if (target === 'option') {
+      const input = button?.closest('.option-item')?.querySelector('.option-input');
+      insertTextAtCursor(input, imageMarkdown);
+      return;
+    }
+    insertTextAtCursor(document.getElementById('editQuestionText'), imageMarkdown);
+  } catch (error) {
+    alert('上传失败: ' + error.message);
   }
-  insertTextAtCursor(document.getElementById('editQuestionText'), imageMarkdown);
 }
 
 function formatStageLabel(stage) {
@@ -794,7 +837,7 @@ function addOption(value = '') {
   optionDiv.innerHTML = `
     <span style="min-width: 30px;">${optionIndex}.</span>
     <input type="text" class="option-input" value="${escapeHtml(value)}" placeholder="请输入选项内容" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
-    <button type="button" class="btn btn-sm" onclick="insertQuestionImage('option', this)" style="padding: 6px 12px;">插入图片</button>
+    <button type="button" class="btn btn-sm" onclick="insertQuestionImage('option', this)" style="padding: 6px 12px;">上传图片</button>
     <button type="button" class="btn btn-sm btn-danger" onclick="removeOption(this)" style="padding: 6px 12px;">- 删除</button>
   `;
   optionsList.appendChild(optionDiv);

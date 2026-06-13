@@ -1,11 +1,18 @@
 package handler
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,15 +27,17 @@ import (
 
 // Handler holds HTTP handlers, wiring repository and service layers.
 type Handler struct {
-	repo *repository.Repository
-	svc  *service.Service
+	repo       *repository.Repository
+	svc        *service.Service
+	uploadsDir string
 }
 
 // NewHandler creates a Handler.
-func NewHandler(repo *repository.Repository, svc *service.Service) *Handler {
+func NewHandler(repo *repository.Repository, svc *service.Service, uploadsDir string) *Handler {
 	return &Handler{
-		repo: repo,
-		svc:  svc,
+		repo:       repo,
+		svc:        svc,
+		uploadsDir: uploadsDir,
 	}
 }
 
@@ -1023,4 +1032,166 @@ func (h *Handler) HandleStudentPart4(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Message: "问卷提交完成，感谢参与！"})
+}
+
+const maxUploadSize = 5 << 20 // 5MB
+
+var allowedImageTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
+// HandleUploadImage accepts a local image upload and stores it under uploadsDir.
+func (h *Handler) HandleUploadImage(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: "请求解析失败，文件可能过大（最大5MB）"})
+		return
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: "请提供图片文件"})
+		return
+	}
+	defer file.Close()
+
+	if header.Size > maxUploadSize {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: "文件大小超过5MB限制"})
+		return
+	}
+
+	// Detect content type from file header.
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		h.writeJSON(w, http.StatusInternalServerError, models.APIResponse{Success: false, Error: "读取文件失败"})
+		return
+	}
+	contentType := http.DetectContentType(buf[:n])
+	if !allowedImageTypes[contentType] {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: "仅支持 JPG、PNG、GIF、WEBP 格式的图片"})
+		return
+	}
+
+	data, err := io.ReadAll(io.MultiReader(bytes.NewReader(buf[:n]), file))
+	if err != nil {
+		h.writeJSON(w, http.StatusInternalServerError, models.APIResponse{Success: false, Error: "读取文件失败"})
+		return
+	}
+
+	filename, err := h.saveUploadedFile(data, header.Filename)
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, models.APIResponse{
+		Success: true,
+		Data: map[string]string{
+			"url":      "/api/uploads/images/" + filename,
+			"filename": filename,
+		},
+	})
+}
+
+// saveUploadedFile writes validated image bytes to uploadsDir and returns the stored filename.
+func (h *Handler) saveUploadedFile(data []byte, original string) (string, error) {
+	base := filepath.Base(original)
+	ext := strings.ToLower(filepath.Ext(base))
+	if ext == "" {
+		ext = ".bin"
+	}
+
+	// Only allow safe image extensions.
+	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
+	if !allowedExts[ext] {
+		return "", fmt.Errorf("不支持的文件扩展名")
+	}
+
+	name := strings.TrimSuffix(base, ext)
+	name = sanitizeFilename(name)
+	if name == "" {
+		name = "image"
+	}
+
+	randomBytes := make([]byte, 4)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", fmt.Errorf("生成文件名失败")
+	}
+	prefix := time.Now().Format("20060102_150405") + "_" + hex.EncodeToString(randomBytes)
+	filename := prefix + "_" + name + ext
+
+	destPath := filepath.Join(h.uploadsDir, filename)
+	cleanDest, err := filepath.Abs(filepath.Clean(destPath))
+	if err != nil {
+		return "", fmt.Errorf("路径解析失败")
+	}
+	cleanUploads, err := filepath.Abs(filepath.Clean(h.uploadsDir))
+	if err != nil {
+		return "", fmt.Errorf("上传目录解析失败")
+	}
+	if !strings.HasPrefix(cleanDest, cleanUploads+string(os.PathSeparator)) {
+		return "", fmt.Errorf("非法文件名")
+	}
+
+	if err := os.WriteFile(cleanDest, data, 0o644); err != nil {
+		return "", fmt.Errorf("保存文件失败")
+	}
+	return filename, nil
+}
+
+func sanitizeFilename(name string) string {
+	re := regexp.MustCompile(`[^\p{L}\p{N}_\-]`)
+	return re.ReplaceAllString(name, "")
+}
+
+// HandleServeImage serves an uploaded image by filename.
+func (h *Handler) HandleServeImage(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("filename")
+	if filename == "" || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: "缺少或非法文件名"})
+		return
+	}
+
+	destPath := filepath.Join(h.uploadsDir, filepath.Base(filename))
+	cleanDest, err := filepath.Abs(filepath.Clean(destPath))
+	if err != nil {
+		h.writeJSON(w, http.StatusInternalServerError, models.APIResponse{Success: false, Error: "路径解析失败"})
+		return
+	}
+	cleanUploads, err := filepath.Abs(filepath.Clean(h.uploadsDir))
+	if err != nil {
+		h.writeJSON(w, http.StatusInternalServerError, models.APIResponse{Success: false, Error: "上传目录解析失败"})
+		return
+	}
+	if !strings.HasPrefix(cleanDest, cleanUploads+string(os.PathSeparator)) {
+		h.writeJSON(w, http.StatusForbidden, models.APIResponse{Success: false, Error: "非法路径"})
+		return
+	}
+
+	f, err := os.Open(cleanDest)
+	if err != nil {
+		if os.IsNotExist(err) {
+			h.writeJSON(w, http.StatusNotFound, models.APIResponse{Success: false, Error: "文件不存在"})
+			return
+		}
+		h.writeError(w, err)
+		return
+	}
+	defer f.Close()
+
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+
+	// Rewind for ServeContent.
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	http.ServeContent(w, r, filename, time.Time{}, f)
 }
