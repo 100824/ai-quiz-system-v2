@@ -63,9 +63,9 @@ func (h *Handler) resolveCourseID(r *http.Request) (int, error) {
 	return h.repo.GetCurrentCourseID()
 }
 
-func (h *Handler) resolveCourseIDFromBody(courseID *int) (int, error) {
-	if courseID != nil && *courseID > 0 {
-		return *courseID, nil
+func (h *Handler) resolveCourseIDFromBody(courseID *models.FlexInt) (int, error) {
+	if courseID != nil && int(*courseID) > 0 {
+		return int(*courseID), nil
 	}
 	return h.repo.GetCurrentCourseID()
 }
@@ -717,9 +717,9 @@ func (h *Handler) HandleTeacherManualScore(w http.ResponseWriter, r *http.Reques
 // HandleStudentValidate checks whether a student is in the class roster.
 func (h *Handler) HandleStudentValidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CourseID    *int   `json:"courseId"`
-		ClassName   string `json:"className"`
-		StudentName string `json:"studentName"`
+		CourseID    *models.FlexInt `json:"courseId"`
+		ClassName   string          `json:"className"`
+		StudentName string          `json:"studentName"`
 	}
 	if err := utils.DecodeJSON(r, &body); err != nil {
 		h.writeJSON(w, http.StatusBadRequest, models.APIResponse{Success: false, Error: err.Error()})
@@ -731,8 +731,8 @@ func (h *Handler) HandleStudentValidate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if effectiveCourseID == 0 {
-		if body.CourseID != nil && *body.CourseID > 0 {
-			effectiveCourseID = *body.CourseID
+		if body.CourseID != nil && int(*body.CourseID) > 0 {
+			effectiveCourseID = int(*body.CourseID)
 		} else {
 			effectiveCourseID, err = h.repo.GetCurrentCourseID()
 			if err != nil {
@@ -876,7 +876,7 @@ func (h *Handler) HandleStudentQuestions(w http.ResponseWriter, r *http.Request)
 func (h *Handler) HandleStudentPart1(w http.ResponseWriter, r *http.Request) {
 	studentID := r.PathValue("studentId")
 	var body struct {
-		CourseID    *int            `json:"courseId"`
+		CourseID    *models.FlexInt `json:"courseId"`
 		StudentName string          `json:"studentName"`
 		ClassName   string          `json:"className"`
 		Answers     json.RawMessage `json:"answers"`
@@ -901,7 +901,7 @@ func (h *Handler) HandleStudentPart1(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleStudentPart2(w http.ResponseWriter, r *http.Request) {
 	studentID := r.PathValue("studentId")
 	var body struct {
-		CourseID  *int                        `json:"courseId"`
+		CourseID  *models.FlexInt             `json:"courseId"`
 		Answer    string                      `json:"answer"`
 		Answers   []string                    `json:"answers"`
 		Responses []models.Part2ResponseInput `json:"responses"`
@@ -956,7 +956,7 @@ func (h *Handler) HandleStudentPart2(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleStudentPart3(w http.ResponseWriter, r *http.Request) {
 	studentID := r.PathValue("studentId")
 	var body struct {
-		CourseID *int              `json:"courseId"`
+		CourseID *models.FlexInt   `json:"courseId"`
 		Answers  map[string]string `json:"answers"`
 	}
 	if err := utils.DecodeJSON(r, &body); err != nil {
@@ -1015,7 +1015,7 @@ func (h *Handler) buildPart3Results(courseID int, answers map[string]string) ([]
 func (h *Handler) HandleStudentPart4(w http.ResponseWriter, r *http.Request) {
 	studentID := r.PathValue("studentId")
 	var body struct {
-		CourseID *int            `json:"courseId"`
+		CourseID *models.FlexInt `json:"courseId"`
 		Answers  json.RawMessage `json:"answers"`
 	}
 	if err := utils.DecodeJSON(r, &body); err != nil {
