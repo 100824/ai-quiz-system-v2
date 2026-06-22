@@ -1,51 +1,43 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <title>人工智能学习平台 - 历史答题记录</title>
-  <link rel="stylesheet" href="css/style.css?v=2026042905">
+  <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
+  <link rel="stylesheet" href="./v2/css/app.css?v=2026062033">
 </head>
 <body class="history-page">
-  <div class="container">
-    <h1 id="history-page-title">人工智能学习平台</h1>
-
-    <div class="card history-hero">
-      <div class="history-hero__content">
-        <div>
-          <p class="history-eyebrow">Learning Archive</p>
-          <h2>我的历史课堂答题数据</h2>
-          <p id="history-page-subtitle" class="history-hero__subtitle">正在加载...</p>
-        </div>
-        <button class="btn history-back-btn" onclick="window.history.back()">返回上一页</button>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <h1>我的历史课堂答题数据</h1>
+        <p id="historySubtitle" class="history-subtitle">正在加载...</p>
       </div>
-    </div>
+      <nav class="nav-pills" style="display:flex;">
+        <a href="./student.html">返回学生端登录口</a>
+      </nav>
+    </header>
 
-    <div id="history-summary" class="card history-summary hidden"></div>
+    <!-- 汇总统计 -->
+    <div id="historySummary" class="history-summary hidden"></div>
 
-    <div id="history-score-compare" class="card history-score-compare hidden"></div>
+    <!-- 预测分数对比 -->
+    <div id="historyScoreCompare" class="history-score-compare hidden"></div>
 
-    <div id="history-loading" class="card">
-      <div class="loading">
-        <div class="spinner"></div>
-        <p>正在加载历史答题数据...</p>
-      </div>
-    </div>
+    <!-- 加载中 -->
+    <section id="historyLoading" class="panel">
+      <div class="empty">⏳ 正在加载历史答题数据...</div>
+    </section>
 
-    <div id="history-empty" class="card hidden">
-      <div class="waiting-message">
-        <div class="emoji">📚</div>
+    <!-- 空状态 -->
+    <section id="historyEmpty" class="panel hidden">
+      <div class="empty">
+        <div style="font-size: 32px; margin-bottom: 12px;">📚</div>
         <p>当前还没有可查看的历史课堂答题数据。</p>
       </div>
-    </div>
-
-    <div id="history-list" class="history-list"></div>
-  </div>
-
-  <script src="js/config.js?v=2026042201"></script>
-  <script src="js/student-history.js?v=2026052401"></script>
+    </section>
+  </main>
+  <script type="module" src="./v2/js/history/app.js?v=2026062032"></script>
 </body>
 </html>

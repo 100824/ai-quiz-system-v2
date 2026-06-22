@@ -1,238 +1,78 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-  <title>人工智能学习平台 - 学生端</title>
-  <link rel="stylesheet" href="css/style.css?v=2026061303">
+  <title>人工智能学习平台</title>
+  <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
+  <link rel="stylesheet" href="./v2/css/app.css?v=2026062033">
 </head>
 <body class="student-page">
-  <div class="container student-shell">
-    <h1 id="course-title">人工智能学习平台</h1>
-    <p class="student-shell-subtitle">像闯关一样学习人工智能，每一题都是一次发现新技能的小冒险。</p>
-    
-    <!-- 登录页面 -->
-    <div id="login-page" class="card student-hero-card">
-      <div class="student-hero-orbit"></div>
-      <div class="student-hero-meta">
-        <span class="student-pill">互动答题</span>
-        <span class="student-pill">课堂闯关</span>
-        <span class="student-pill">学习回顾</span>
-      </div>
-      <h2>👋 欢迎你！</h2>
-      <p class="student-hero-subtitle">选择班级，输入姓名，马上进入今天的 AI 学习挑战。</p>
-      <div class="input-group">
-        <label for="class-select">请选择你的班级：</label>
-        <select id="class-select">
-          <option value="">请选择班级</option>
-          <option value="五年级（1）班">五年级（1）班</option>
-          <option value="五年级（2）班">五年级（2）班</option>
-          <option value="五年级（3）班">五年级（3）班</option>
-          <option value="五年级（4）班">五年级（4）班</option>
-          <option value="五年级（5）班">五年级（5）班</option>
-          <option value="五年级（6）班">五年级（6）班</option>
-          <option value="五年级（7）班">五年级（7）班</option>
-        </select>
-      </div>
-      <div class="input-group" style="position: relative;">
-        <label for="student-name">请输入你的姓名：</label>
-        <input type="text" id="student-name" placeholder="请输入你的姓名，输入1个字符即可显示匹配的姓名" autocomplete="off">
-        <!-- 自定义姓名建议下拉框 -->
-        <div id="name-dropdown" style="position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; display: none; margin-top: 4px;">
-        </div>
-      </div>
-      <div class="student-login-actions">
-        <button class="btn btn-full btn-success" onclick="startSurvey()">开始答题 ✨</button>
-        <button class="btn student-login-history-btn" onclick="openHistoryFromLogin()">我的历史课堂答题数据</button>
-      </div>
-    </div>
-    
-    <!-- 问卷页面 -->
-    <div id="survey-page" class="hidden student-survey-layout">
-      <aside class="card student-progress-card">
-        <div class="student-progress-card__head">
-          <span class="student-pill student-pill--progress">答题进度</span>
-          <h3>我的课堂进度</h3>
-          <p id="student-progress-summary">正在等待课堂开始</p>
-        </div>
-        <div class="student-progress-card__summary">
-          <div>
-            <p id="student-progress-count" class="student-progress-count">已完成 0 / 5</p>
-          </div>
-          <span class="student-progress-card__spark">⚡</span>
-        </div>
-        <div class="student-progress-meter" aria-hidden="true">
-          <div id="student-progress-meter-fill" class="student-progress-meter__fill"></div>
-        </div>
-        <div id="student-progress-list" class="student-progress-list"></div>
-      </aside>
-
-      <div class="student-survey-main">
-        <div class="card student-stage-banner" style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, rgba(232,242,252,0.98), rgba(218,234,248,0.94));">
-          <h3 style="margin: 0; text-align: center;">当前是：<span id="lesson-name">第1节课</span></h3>
-        </div>
-
-        <div id="prep-stage" class="card student-part-card hidden">
-        <h2>🚀 准备环节</h2>
-        <p class="student-section-intro">你已经完成登录，请先查看课堂提示，等待老师正式开启课堂。</p>
-        <div class="student-prep-tip-card">
-          <div class="student-prep-tip-head">
-            <span class="student-quiz-tag">课堂提示</span>
-            <h3>请等待老师正式开启课堂</h3>
-          </div>
-          <div id="prepTipContent" class="student-prep-tip-content">老师还没有填写课堂提示语，请稍等。</div>
-        </div>
-      </div>
-      
-      <!-- 第一部分 -->
-      <div id="part1" class="card student-part-card">
-        <h2>📝 第一部分：上课前</h2>
-        <p class="student-section-intro">先做个热身，猜一猜今天的表现，再选一选你准备怎么学。</p>
-        <div id="part1-content">
-          <!-- 题目会动态加载 -->
-        </div>
-        <div class="btn-group" id="part1-btn">
-          <button class="btn btn-success" onclick="submitPart1()">提交第一部分 ✅</button>
-        </div>
-      </div>
-      
-      <!-- 等待第二部分 -->
-      <div id="waiting-part2" class="card hidden">
-        <div class="waiting-message">
-          <div class="emoji">⏳</div>
-          <p>第一部分提交成功！<br>请等待老师开启第二部分...</p>
-        </div>
-      </div>
-      
-      <!-- 第二部分 -->
-      <div id="part2" class="card student-part-card hidden">
-        <h2>💬 第二部分：思考与讨论</h2>
-        <p class="student-section-intro">跟着老师的引导大胆表达，把你的想法完整说出来。</p>
-        <!-- 答题指引区域 -->
-        <div id="part2GuideSection" class="student-guide-card" style="margin-bottom: 25px; padding: 15px; background: linear-gradient(180deg, #fff5d0 0%, #fff0c0 100%); border: 1px solid rgba(232,200,122,0.35); border-radius: 16px; display: none;">
-          <h4 style="margin: 0 0 10px 0; color: #856404;">📋 答题指引</h4>
-          <div id="part2GuideContent" style="font-size: 15px; line-height: 1.8; user-select: text; white-space: pre-wrap; word-wrap: break-word;">
-          </div>
-        </div>
-        <div id="part2-content">
-          <!-- 题目会动态加载 -->
-        </div>
-        <div class="btn-group" id="part2-btn">
-          <button class="btn btn-success" onclick="submitPart2()">提交第二部分 ✅</button>
-        </div>
-      </div>
-      
-      <!-- 等待第三部分 -->
-      <div id="waiting-part3" class="card hidden">
-        <div class="waiting-message">
-          <div class="emoji">⏳</div>
-          <p>第二部分提交成功！<br>请等待老师开启第三部分...</p>
-        </div>
-      </div>
-      
-      <!-- 第三部分 -->
-      <div id="part3" class="card student-part-card hidden">
-        <h2>✍️ 第三部分：小测验</h2>
-        <p class="student-section-intro">进入答题关卡，看看你对本节课内容掌握得怎么样。</p>
-        <div id="part3-content">
-          <!-- 题目会动态加载 -->
-        </div>
-        <div class="btn-group" id="part3-btn">
-          <button class="btn btn-success" onclick="submitPart3()">提交第三部分 ✅</button>
-        </div>
-      </div>
-      
-      <!-- 第三部分答案解析 -->
-      <div id="part3-results" class="card student-part-card hidden">
-        <h2>✅ 小测验结果</h2>
-        <p class="student-section-intro">看看这轮挑战得了多少分，再复盘一下每一道题。</p>
-        <div id="score-display" class="student-score-display" style="text-align: center; margin-bottom: 20px; padding: 20px; background: linear-gradient(180deg, #e8f2fa 0%, #f8fbff 100%); border-radius: 20px; border: 1px solid rgba(59,130,246,0.15);">
-          <h3 style="margin: 0 0 10px 0; color: #4a6fa5;">你的得分</h3>
-          <div style="font-size: 2.2em; font-weight: bold; color: var(--primary-color);" id="total-score">0/5</div>
-        </div>
-        <div id="results-content" style="margin-bottom: 20px;">
-          <!-- 答案解析会动态生成 -->
-        </div>
-        <div class="waiting-message" id="waiting-part4">
-          <div class="emoji">⏳</div>
-          <p>请等待老师开启第四部分...</p>
-        </div>
-      </div>
-      
-      <!-- 第四部分 -->
-      <div id="part4" class="card student-part-card hidden">
-        <h2>🌟 第四部分：课后反思</h2>
-        <p class="student-section-intro">复盘本节课的表现，把你的发现和下一步计划记录下来。</p>
-        <div id="part4-content">
-          <!-- 动态生成内容 -->
-        </div>
-        <div class="btn-group" id="part4-btn">
-          <button class="btn btn-success" onclick="submitPart4()">完成问卷 🎉</button>
-        </div>
-      </div>
-      
-      <!-- 完成页面 -->
-      <div id="completed-page" class="card student-complete-card hidden">
-        <div class="waiting-message">
-          <div class="emoji">🎉</div>
-          <div class="student-complete-badge">学习任务完成</div>
-          <p>太棒了！你已经完成了所有问卷！<br>谢谢你的参与！🌟</p>
-        </div>
-        <div id="history-entry-wrap" class="btn-group" style="margin-top: 20px;">
-          <button class="btn btn-primary" onclick="openHistoryPage()">查看我的历史课堂答题数据</button>
-        </div>
-      </div>
-      </div>
-    </div>
-    
-    <!-- 加载中 -->
-    <div id="loading" class="card hidden student-loading-card">
-      <div class="loading">
-        <div class="spinner"></div>
-        <p>请稍候...</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- 课堂黑板提示区（常驻顶部） -->
   <div id="tipBlackboard" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(135deg, #5B9BD5 0%, #7BA7D9 55%, #A8C8EC 100%); color: white; z-index: 9999; box-shadow: 0 4px 20px rgba(59,130,246,0.3); border-bottom: 2px solid rgba(255,255,255,0.3);">
     <div style="max-width: 1200px; margin: 0 auto; padding: 12px 20px;">
       <div style="display: flex; align-items: flex-start; gap: 15px;">
         <div style="font-size: 24px; flex-shrink: 0;">📋</div>
         <div style="flex: 1;">
           <div style="font-weight: 600; font-size: 16px; margin-bottom: 6px;">课堂提示</div>
-          <div id="tipContent" style="font-size: 15px; line-height: 1.8; user-select: text; min-height: 24px; white-space: pre-wrap; word-wrap: break-word;" placeholder="暂无提示"></div>
+          <div id="tipContent" style="font-size: 18px; line-height: 1.8; user-select: text; min-height: 24px; white-space: pre-wrap; word-wrap: break-word;" placeholder="暂无提示"></div>
         </div>
       </div>
     </div>
   </div>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <h1>人工智能学习平台</h1>
+        <p>新版学生端，当前接口：<span id="apiBase"></span></p>
+      </div>
+      <nav class="nav-pills">
+        <a href="./teacher.html">教师端</a>
+        <a href="./student-history.html">我的历史</a>
+        <a href="./history/student.html">旧版归档</a>
+      </nav>
+    </header>
 
-  <!-- 给页面内容加顶部边距，避免被黑板挡住 -->
-  <style>
-    body {
-      padding-top: 0 !important;
-    }
-    @media (max-width: 768px) {
-      body {
-        padding-top: 0 !important;
-      }
-    }
-  </style>
-
-  <div id="student-alert-modal" class="student-alert-modal hidden" role="dialog" aria-modal="true" aria-labelledby="student-alert-title">
-    <div class="student-alert-backdrop"></div>
-    <div class="student-alert-panel">
-      <div class="student-alert-icon">💡</div>
-      <h3 id="student-alert-title">提示</h3>
-      <p id="student-alert-message"></p>
-      <button id="student-alert-confirm" class="btn btn-primary" type="button">我知道了</button>
-    </div>
-  </div>
-  
-  <script src="js/config.js?v=2026042902"></script>
-  <script src="js/student.js?v=2026061303"></script>
+    <section class="grid">
+      <div id="loginPage" class="panel span-4">
+        <h2>欢迎你！</h2>
+        <p class="meta">选择班级，输入姓名，进入今天的课堂。</p>
+        <div class="form-row">
+          <label>请选择你的班级</label>
+          <select id="classSelect"></select>
+          <label>请输入你的姓名</label>
+          <div id="studentNameCombobox" class="student-name-combobox">
+            <input id="studentNameInput" placeholder="请输入姓名" autocomplete="off">
+            <div id="studentNameList" class="custom-select__menu student-name-menu" role="listbox" aria-label="姓名匹配结果"></div>
+          </div>
+          <div class="student-login-actions">
+            <button id="enterBtn" type="button">开始答题</button>
+            <button id="historyBtn" class="secondary" type="button">查看历史数据</button>
+          </div>
+          <div id="loginMessage" class="login-message"></div>
+        </div>
+      </div>
+      <div id="surveyPage" class="student-survey-layout span-12 hidden">
+        <aside class="panel student-progress-card">
+          <div class="student-pill">答题进度</div>
+          <h2>我的课堂进度</h2>
+          <p id="studentProgressSummary" class="meta">正在等待课堂开始</p>
+          <div class="student-progress-summary">
+            <strong id="studentProgressCount">已完成 0 / 1</strong>
+          </div>
+          <div class="student-progress-meter">
+            <div id="studentProgressMeterFill"></div>
+          </div>
+          <div id="studentProgressList" class="student-progress-list"></div>
+        </aside>
+        <div id="classroom" class="student-survey-main">
+          <div class="panel">
+            <h2>准备环节</h2>
+            <p class="meta">选择班级和姓名后进入课堂。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./v2/js/student/app.js?v=2026062035"></script>
 </body>
 </html>

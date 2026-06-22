@@ -1,352 +1,260 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>人工智能学习平台 - 教师管理后台</title>
-  <link rel="stylesheet" href="css/style.css?v=2026061304">
+  <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
+  <link rel="stylesheet" href="./v2/css/app.css?v=2026062033">
 </head>
 <body>
-  <!-- 密码验证遮罩层 -->
-  <div id="passwordOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #3B82F6 0%, #7BA7D9 55%, #A8C8EC 100%); display: flex; align-items: center; justify-content: center; z-index: 9999;">
-    <div style="background: white; padding: 40px; border-radius: 24px; box-shadow: 0 20px 50px rgba(59,130,246,0.35); width: 400px; text-align: center; border: 3px solid rgba(255,255,255,0.6);">
-      <div style="font-size: 48px; margin-bottom: 12px;">🔐</div>
-      <h2 style="margin: 0 0 12px 0; color: #4a6fa5;">教师端访问验证</h2>
-      <p style="margin: 0 0 30px 0; color: #6a8db5; font-size: 15px;">请输入访问密码，进入课堂管理后台~</p>
-      <div class="form-group">
-        <input type="password" id="passwordInput" placeholder="请输入密码" style="width: 100%; padding: 14px; font-size: 18px; border: 2px solid #c0d8f0; border-radius: 16px; margin-bottom: 20px; text-align: center; letter-spacing: 6px; background: #f5faff; color: #4a6fa5; font-weight: 700;" maxlength="4">
-      </div>
-      <div style="color: #FF6B6B; margin-bottom: 20px; min-height: 20px; font-weight: 600;" id="passwordError"></div>
-      <button class="btn btn-primary" onclick="checkPassword()" style="width: 100%; padding: 14px; font-size: 18px; border-radius: 18px;">🚀 确认进入</button>
+  <div id="passwordOverlay" class="teacher-password-overlay">
+    <div class="teacher-password-card">
+      <div class="teacher-password-icon">🔐</div>
+      <h2>教师端访问验证</h2>
+      <p>请输入访问密码后继续进入教师管理后台。</p>
+      <input id="passwordInput" class="teacher-password-input" type="password" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="请输入密码">
+      <div id="passwordError" class="teacher-password-error"></div>
+      <button type="button" id="passwordSubmitBtn" class="teacher-password-submit">确认进入</button>
     </div>
   </div>
 
-  <div class="container" id="mainContainer" style="display: none;">
-    <header>
-      <h1>🎓 人工智能学习平台 - 教师管理后台</h1>
-      <div class="header-info">
-        <span id="currentCourse"></span>
-        <span id="currentStage"></span>
-        <span id="apiBaseHint">加载中...</span>
+  <main id="mainContainer" class="app-shell hidden">
+    <header class="topbar">
+      <div class="brand">
+        <h1>🎓 人工智能学习平台 - 教师管理后台</h1>
+        <div class="header-info">
+          <span>新版课堂</span>
+          <span>独立数据</span>
+          <span id="apiBase"></span>
+        </div>
       </div>
+      <nav class="nav-pills">
+        <a href="./student.html">学生端</a>
+        <a href="./student-history.html">新版历史页</a>
+        <a href="./history/teacher.html">旧版归档</a>
+      </nav>
     </header>
 
-    <!-- 导航栏 -->
-    <nav class="nav-tabs">
-      <button class="nav-btn active" data-tab="course">课程管理</button>
-      <button class="nav-btn" data-tab="class">班级管理</button>
-      <button class="nav-btn" data-tab="question">题目管理</button>
-      <button class="nav-btn" data-tab="stats">统计数据</button>
+    <nav class="teacher-tabs">
+      <button class="active" data-tab="course">课堂管理</button>
+      <button data-tab="class">班级管理</button>
+      <button data-tab="question">题目管理</button>
+      <button data-tab="stats">统计数据</button>
     </nav>
 
-    <!-- 课程管理 tab -->
-    <div id="course" class="tab-content active">
-      <div class="card">
-        <h3>🎯 课堂进度控制</h3>
-        <div class="form-group">
-          <label>先选择班级</label>
-          <select id="stageClassSelect">
-            <option value="五年级（1）班">五年级（1）班</option>
-            <option value="五年级（2）班">五年级（2）班</option>
-            <option value="五年级（3）班">五年级（3）班</option>
-            <option value="五年级（4）班">五年级（4）班</option>
-            <option value="五年级（5）班">五年级（5）班</option>
-            <option value="五年级（6）班">五年级（6）班</option>
-            <option value="五年级（7）班">五年级（7）班</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>再选择对应课程</label>
-          <select id="stageCourseSelect"></select>
-        </div>
-        <div class="form-group">
-          <label>当前进度</label>
-          <p id="currentStageText" style="font-size: 18px; font-weight: 700; color: var(--primary-color); margin: 10px 0;">准备环节</p>
-        </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn" id="stage-btn-0" onclick="setStage(0)">切换到准备环节</button>
-          <button class="btn" id="stage-btn-1" onclick="setStage(1)">切换到第1部分</button>
-          <button class="btn" id="stage-btn-2" onclick="setStage(2)">切换到第2部分</button>
-          <button class="btn" id="stage-btn-3" onclick="setStage(3)">切换到第3部分</button>
-          <button class="btn" id="stage-btn-4" onclick="setStage(4)">切换到第4部分</button>
-        </div>
-        
-        <!-- 完成情况展示 -->
-        <div id="courseCompletionStats" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #d0e4f5;">
-          <h4 style="margin: 0 0 15px 0;">📊 当前班级完成情况</h4>
-          <div id="completionContent" style="line-height: 2;">
-            <p style="margin: 5px 0;">请先选择班级和课程查看完成情况</p>
+    <section id="course" class="tab-content active">
+      <div class="grid">
+        <div class="panel span-5">
+          <div class="section-heading">
+            <h2>课堂管理</h2>
           </div>
-        </div>
-
-        <!-- 课堂提示语模块 -->
-        <div id="tipModule" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #d0e4f5;">
-          <h4 style="margin: 0 0 15px 0;">💬 课堂提示语</h4>
-          <div style="margin-bottom: 10px;">
-            <button type="button" class="btn btn-sm" onclick="formatText('bold')" style="margin-right: 8px;"><strong>B</strong> 加粗</button>
-            <button type="button" class="btn btn-sm btn-danger" onclick="formatText('red')">标红</button>
-          </div>
-          <div class="form-group">
-            <label>提示语内容（支持加粗、标红格式）：</label>
-            <div id="tipInput" contenteditable="true" style="width: 100%; min-height: 100px; padding: 14px; border: 2px solid #c0d8f0; border-radius: 14px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word; background: #f5faff;" placeholder="请输入提示语内容，选中文字后点击上方按钮可以设置格式..."></div>
-          </div>
-          <div style="display: flex; gap: 10px;">
-            <button class="btn btn-primary" onclick="submitTip()">提交提示语</button>
-            <button class="btn" onclick="clearTip()">清空</button>
-          </div>
+          <form id="classroomForm" class="form-row">
+            <label>先选择班级</label>
+            <select id="classSelect"></select>
+            <label>再选择对应课堂</label>
+            <select id="courseSelect"></select>
+            <div>
+              <label>当前进度</label>
+              <p id="currentStageText" class="stage-current">准备环节</p>
+            </div>
+            <div id="stageButtons" class="stage-buttons"></div>
+            <label>课堂黑板</label>
+            <textarea id="blackboard" placeholder="请输入课堂黑板内容，学生端会实时看到"></textarea>
+            <div class="inline-row">
+              <button type="submit">保存课堂状态</button>
+            </div>
+          </form>
+          <div id="classroomSummary" class="empty">选择班级和课堂后显示课堂状态。学生端只会看到已绑定到自己班级的课堂。</div>
+          <div id="courseCompletionStats" class="completion-block"></div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- 班级管理 tab -->
-    <div id="class" class="tab-content">
-      <div class="card">
-      <h3>班级管理</h3>
-      <div id="classList">
-        <div class="class-item">
-          <h4>五年级（1）班</h4>
-          <p id="class-1-count">学生数: 0</p>
-          <button class="btn btn-sm" onclick="editClassStudents('五年级（1）班')">编辑学生名单</button>
-        </div>
-        <div class="class-item">
-          <h4>五年级（2）班</h4>
-          <p id="class-2-count">学生数: 0</p>
-          <button class="btn btn-sm" onclick="editClassStudents('五年级（2）班')">编辑学生名单</button>
-        </div>
-        <div class="class-item">
-          <h4>五年级（3）班</h4>
-          <p id="class-3-count">学生数: 0</p>
-          <button class="btn btn-sm" onclick="editClassStudents('五年级（3）班')">编辑学生名单</button>
-        </div>
-        <div class="class-item">
-          <h4>五年级（4）班</h4>
-          <p id="class-4-count">学生数: 0</p>
-          <button class="btn btn-sm" onclick="editClassStudents('五年级（4）班')">编辑学生名单</button>
-        </div>
-        <div class="class-item">
-          <h4>五年级（5）班</h4>
-          <p id="class-5-count">学生数: 0</p>
-          <button class="btn btn-sm" onclick="editClassStudents('五年级（5）班')">编辑学生名单</button>
-        </div>
-        <div class="class-item">
-          <h4>五年级（6）班</h4>
-          <p id="class-6-count">学生数: 0</p>
-          <button class="btn btn-sm" onclick="editClassStudents('五年级（6）班')">编辑学生名单</button>
-        </div>
-        <div class="class-item">
-          <h4>五年级（7）班</h4>
-          <p id="class-7-count">学生数: 0</p>
-          <button class="btn btn-sm" onclick="editClassStudents('五年级（7）班')">编辑学生名单</button>
-        </div>
-      </div>
-    </div>
-    </div>
-
-    <!-- 编辑学生名单模态框 -->
-    <div id="studentModal" class="modal hidden">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 id="modalTitle">编辑班级学生名单</h3>
-          <span class="close-btn" onclick="closeStudentModal()">&times;</span>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>学生名单（每行一个名字）：</label>
-            <textarea id="studentNames" rows="15" placeholder="张三
-李四
-王五
-..."></textarea>
-            <p style="font-size: 14px; color: #666; margin-top: 8px;">💡 提示：每行输入一个学生姓名，直接粘贴也可以哦~</p>
+    <section id="class" class="tab-content">
+      <div class="grid">
+        <div class="panel span-5">
+          <div class="section-heading">
+            <h2>班级管理</h2>
+            <span class="badge">学生只绑定班级</span>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn" onclick="closeStudentModal()">取消</button>
-          <button class="btn btn-primary" onclick="saveStudentList()">保存</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 编辑题目模态框 -->
-    <div id="questionModal" class="modal hidden">
-      <div class="modal-content" style="max-width: 800px;">
-        <div class="modal-header">
-          <h3 id="questionModalTitle">编辑题目</h3>
-          <span class="close-btn" onclick="closeQuestionModal()">&times;</span>
-        </div>
-        <div class="modal-body">
-          <input type="hidden" id="editQuestionId">
-          <div class="form-group">
-            <label>题目内容：</label>
-            <textarea id="editQuestionText" class="image-aware-input" rows="3" placeholder="请输入题目内容" style="width: 100%;"></textarea>
-            <div id="questionImagePreview" class="question-edit-image-list"></div>
-            <button type="button" class="btn btn-sm" onclick="insertQuestionImage('question')" style="margin-top: 8px;">上传本地图片</button>
-            <p style="margin: 6px 0 0; color: #6b7f95; font-size: 12px;">图片会以缩略图展示，保存后学生端自动显示；不需要手动处理图片地址。</p>
-          </div>
-          <div class="form-group">
-            <label>题目类型：</label>
-            <select id="editQuestionType">
-              <option value="single">单选</option>
-              <option value="multi">多选</option>
-              <option value="text">填空/开放题</option>
-              <option value="judge">判断</option>
+          <button type="button" id="createClassBtn">➕ 创建班级</button>
+          <div class="class-selector-row">
+            <select id="classSelectMain">
+              <option value="">请选择班级</option>
             </select>
+            <button type="button" class="danger" id="deleteClassBtn">删除班级</button>
           </div>
-          <div class="form-group" id="optionsGroup">
-            <label>选项：</label>
-            <div id="optionsList">
-              <!-- 选项会动态生成 -->
+          <div id="classInfo" class="class-info empty">请选择班级查看信息。</div>
+          <div class="class-course-binding">
+            <h3>绑定课堂</h3>
+            <div id="classCourseBindingList" class="class-course-binding-list"></div>
+            <button type="button" id="saveClassCourseBindingBtn">保存绑定课堂</button>
+          </div>
+        </div>
+
+        <div class="panel span-7">
+          <div class="section-heading">
+            <h2>学生名单</h2>
+          </div>
+          <button type="button" id="addStudentBtn">➕ 添加学生</button>
+          <div id="studentList" class="list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="question" class="tab-content">
+      <div class="grid">
+        <div class="panel span-5">
+          <div class="section-heading">
+            <h2>题目管理</h2>
+          </div>
+          <button type="button" id="showCreateCourseBtn">➕ 创建课堂</button>
+          <form id="courseForm" class="form-row hidden">
+            <input id="courseTitle" placeholder="课堂名称" required>
+            <select id="courseTemplate"></select>
+            <input id="courseDescription" placeholder="课堂说明，可选">
+            <div class="inline-row">
+              <button type="submit">确认创建</button>
+              <button type="button" class="secondary" id="cancelCreateCourseBtn">取消</button>
             </div>
-            <button type="button" class="btn btn-sm btn-success" onclick="addOption()" style="margin-top: 10px;">+ 新增选项</button>
-          </div>
-          <div class="form-group" id="correctAnswerGroup">
-            <label>正确答案：</label>
-            <input type="text" id="editCorrectAnswer" placeholder="请输入正确答案" style="width: 100%;">
-          </div>
-          <div class="form-group" id="annotationControlGroup" style="display: none;">
-            <label style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
-              <input type="checkbox" id="editAnnotationEnabled" style="width: auto;">
-              <span>开启颜色标注要求</span>
-            </label>
-            <p style="margin: 6px 0 0 24px; color: #4a5e72; font-size: 13px;">开启后学生端显示颜色标注按钮，提交时至少需要标注一次；关闭后作为普通填空题提交。</p>
-          </div>
-          <div class="form-group">
-            <label>答案解析（支持加粗、标红、换行格式）：</label>
-            <div style="margin-bottom: 10px;">
-              <button type="button" class="btn btn-sm" onclick="formatExplanation('bold')" style="margin-right: 8px;"><strong>B</strong> 加粗</button>
-              <button type="button" class="btn btn-sm btn-danger" onclick="formatExplanation('red')">标红</button>
-            </div>
-            <div id="editExplanation" contenteditable="true" style="width: 100%; min-height: 80px; padding: 14px; border: 2px solid #c0d8f0; border-radius: 14px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word; background: #f5faff;" placeholder="请输入答案解析，选中文字后点击上方按钮可以设置格式..."></div>
+          </form>
+          <label>选择要编辑的课堂</label>
+          <select id="questionCourseSelect"></select>
+          <div class="inline-row question-toolbar">
+            <button type="button" class="danger" id="deleteSelectedCourseBtn">删除当前课堂</button>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn" onclick="closeQuestionModal()">取消</button>
-          <button class="btn btn-primary" onclick="saveQuestion()">保存题目</button>
-        </div>
-      </div>
-    </div>
 
-    <!-- 学生答题详情模态框 -->
-    <div id="studentDetailModal" class="modal hidden">
-      <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
-        <div class="modal-header">
-          <h3 id="studentDetailTitle">学生答题详情</h3>
-          <span class="close-btn" onclick="closeStudentDetailModal()">&times;</span>
-        </div>
-        <div class="modal-body" id="studentDetailContent">
-          <!-- 详情内容动态生成 -->
-        </div>
-        <div class="modal-footer">
-          <button class="btn" onclick="closeStudentDetailModal()">关闭</button>
+        <div class="panel span-7">
+          <h2>部分与题目</h2>
+          <div class="question-section-block">
+            <h3>新增部分</h3>
+            <form id="sectionForm" class="section-create-row">
+              <input id="sectionTitle" placeholder="新增部分名称">
+              <button type="submit">添加</button>
+            </form>
+          </div>
+          <div class="question-section-block question-section-select-block">
+            <label for="questionSectionSelect">选择部分</label>
+            <select id="questionSectionSelect"></select>
+          </div>
+          <div class="inline-row question-toolbar">
+            <button type="button" id="addQuestionBtn">➕ 新增题目</button>
+          </div>
+          <div id="questionList" class="list"></div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- 题目管理 tab -->
-    <div id="question" class="tab-content">
-      <div class="card">
-      <h3>题目管理</h3>
-      <div class="form-group">
-        <label>选择课程</label>
-        <select id="questionCourseSelect"></select>
-      </div>
-      <div class="form-group">
-        <label>选择部分</label>
-        <select id="questionPartSelect">
-          <option value="1">第一部分</option>
-          <option value="2">第二部分</option>
-          <option value="3">第三部分</option>
-          <option value="4">第四部分</option>
-        </select>
-      </div>
-
-      <div class="card" style="padding: 20px; margin-bottom: 20px; background: linear-gradient(180deg, #edf5fa 0%, #e5edf5 100%);">
-        <h4 style="margin: 0 0 12px 0;">🔧 部分启用控制</h4>
-        <p style="margin: 0 0 14px 0; color: #4a5e72;">关闭某个部分后，教师端将不能切换到该部分，学生端也会自动跳过该部分。</p>
-        <div id="partToggleList" style="display: flex; gap: 12px; flex-wrap: wrap;"></div>
-        <div style="margin-top: 14px;">
-          <button class="btn btn-primary" onclick="savePartSettings()">保存部分启用状态</button>
+    <section id="stats" class="tab-content">
+      <div class="panel">
+        <div class="section-heading">
+          <h2>统计数据</h2>
         </div>
-      </div>
-
-      <!-- 第二部分答题指引编辑区域，只有选择第二部分时显示 -->
-      <div id="part2GuideSection" style="display: none; margin-bottom: 25px; padding: 20px; background: linear-gradient(180deg, #edf5fa 0%, #e5edf5 100%); border-radius: 16px;">
-        <h4 style="margin: 0 0 15px 0;">📝 第二部分答题指引</h4>
-        <div style="margin-bottom: 10px;">
-          <button type="button" class="btn btn-sm" onclick="formatGuideText('bold')" style="margin-right: 8px;"><strong>B</strong> 加粗</button>
-          <button type="button" class="btn btn-sm btn-danger" onclick="formatGuideText('red')">标红</button>
+        <div class="form-row">
+          <label>选择课堂</label>
+          <select id="statsCourseSelect"></select>
+          <label>选择班级（可选）</label>
+          <select id="statsClassSelect"></select>
+          <div class="inline-row">
+            <button type="button" id="refreshStatsBtn">加载统计</button>
+            <button type="button" class="secondary" id="exportStatsBtn">导出Excel</button>
+            <button type="button" class="secondary" id="exportAllStatsBtn">导出全部课程全部班级</button>
+            <button type="button" class="secondary" id="exportPredictionSummaryBtn">导出学生历史预测汇总</button>
+          </div>
         </div>
-        <div class="form-group">
-          <label>指引内容（支持加粗、标红、换行格式，将显示在学生端第二部分题目前面）：</label>
-          <div id="part2GuideInput" contenteditable="true" style="width: 100%; min-height: 120px; padding: 14px; border: 2px solid #c0d8f0; border-radius: 14px; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word; background: #f5faff;" placeholder="请输入答题指引内容，选中文字后点击上方按钮可以设置格式..."></div>
-        </div>
-        <div style="display: flex; gap: 10px;">
-          <button class="btn btn-primary" onclick="savePart2Guide()">保存指引</button>
-          <button class="btn" onclick="clearPart2Guide()">清空</button>
-        </div>
+        <div id="statsCards" class="stat-grid"></div>
+        <div id="statsContent" class="list"></div>
       </div>
+    </section>
+  </main>
 
-      <div id="questionList"></div>
-    </div>
-    </div>
-
-    <!-- 统计数据 tab -->
-    <div id="stats" class="tab-content">
-      <div class="card">
-      <h3>统计数据</h3>
-      <div class="form-group">
-        <label>选择课程</label>
-        <select id="statsCourseSelect"></select>
+  <div id="createClassModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <button class="modal-close-x" title="关闭">✕</button>
+      <h3>创建班级</h3>
+      <input id="createClassName" type="text" placeholder="请输入班级名称" autocomplete="off">
+      <div class="modal-actions">
+        <button type="button" class="secondary" id="cancelCreateClass">取消</button>
+        <button type="button" id="confirmCreateClass">确定</button>
       </div>
-      <div class="form-group">
-        <label>选择班级（可选）</label>
-        <select id="statsClassSelect">
-          <option value="">所有班级</option>
-        </select>
-        <button class="btn btn-primary" onclick="loadStats()">加载统计</button>
-        <button class="btn btn-success" onclick="exportStats()" style="margin-left: 8px;">导出Excel</button>
-        <button class="btn btn-success" onclick="exportAllStats()" style="margin-left: 8px;">导出全部课程全部班级</button>
-        <button class="btn btn-success" onclick="exportPredictionSummary()" style="margin-left: 8px;">导出学生历史预测汇总</button>
-      </div>
-      <div id="statsContent"></div>
-    </div>
     </div>
   </div>
 
-  <script>
-    // 密码验证逻辑
-    const CORRECT_PASSWORD = "0506";
-    
-    // 检查密码
-    function checkPassword() {
-      const input = document.getElementById("passwordInput").value.trim();
-      const errorEl = document.getElementById("passwordError");
-      
-      if (input === CORRECT_PASSWORD) {
-        // 验证成功
-        document.getElementById("passwordOverlay").style.display = "none";
-        document.getElementById("mainContainer").style.display = "block";
-        errorEl.textContent = "";
-      } else {
-        // 验证失败
-        errorEl.textContent = "密码错误，请重新输入";
-        document.getElementById("passwordInput").value = "";
-        document.getElementById("passwordInput").focus();
-      }
-    }
-    
-    // 绑定回车事件
-    document.getElementById("passwordInput").addEventListener("keydown", function(e) {
-      if (e.key === "Enter") {
-        checkPassword();
-      }
-    });
-    
-    // 页面加载完成后自动聚焦密码输入框
-    window.addEventListener("load", function() {
-      document.getElementById("passwordInput").focus();
-    });
-  </script>
-  <script src="js/config.js?v=2026042201"></script>
-  <script src="js/teacher.js?v=2026061304"></script>
+  <div id="addStudentModal" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <button class="modal-close-x" title="关闭">✕</button>
+      <h3>添加学生</h3>
+      <div class="add-student-section">
+        <p class="input-hint">每行一个学生，格式：姓名 学号</p>
+        <textarea id="batchStudentInput" placeholder="每行一个学生，格式：姓名 学号&#10;例如：&#10;张三 2024001&#10;李四 2024002"></textarea>
+        <div class="modal-actions">
+          <button type="button" class="secondary" id="cancelAddStudent">取消</button>
+          <button type="button" id="confirmBatchStudent">导入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="questionModal" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <button class="modal-close-x" title="关闭">✕</button>
+      <h3 id="questionModalTitle">新增题目</h3>
+      <input type="hidden" id="editQuestionId">
+      <div class="form-row">
+        <label>题目类型</label>
+        <select id="editQuestionType">
+          <option value="single_choice">单选题</option>
+          <option value="multiple_choice">多选题</option>
+          <option value="fill_blank">填空题</option>
+          <option value="open_text">开放题</option>
+          <option value="ai_chat">AI 对话题</option>
+        </select>
+        <label>题目内容</label>
+        <div class="image-edit-field">
+          <textarea id="editQuestionTitle" placeholder="请输入题目内容"></textarea>
+          <button type="button" class="secondary" id="uploadQuestionImageBtn">上传题目图片</button>
+          <div id="questionImagePreview" class="image-preview-list"></div>
+        </div>
+        <label>题干说明</label>
+        <textarea id="editQuestionDescription" placeholder="可选"></textarea>
+        <div id="editOptionsGroup">
+          <label>选项</label>
+          <div id="editOptionsList"></div>
+          <button type="button" class="secondary" id="addOptionBtn">+ 新增选项</button>
+        </div>
+        <div id="editCorrectAnswerGroup">
+          <label>正确答案</label>
+          <input id="editCorrectAnswer" placeholder="单选填写选项序号或内容；多选可用逗号分隔">
+        </div>
+        <div id="editOpenTextRulesGroup" class="open-text-rules-card hidden">
+          <strong>颜色标注开放题</strong>
+          <p>学生必须至少标注一处文字才能提交。绿色表示关键事实或观点，黄色表示疑惑，红色表示错误或不同意；学生也可以去除颜色后重新标注。</p>
+        </div>
+        <label>分值</label>
+        <input id="editQuestionScore" type="number" min="0" max="100" value="0">
+        <label>答案解析</label>
+        <textarea id="editQuestionExplanation" placeholder="可选"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="secondary" id="cancelQuestionEdit">取消</button>
+        <button type="button" id="saveQuestionBtn">保存题目</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="studentDetailModal" class="modal-overlay hidden student-detail-modal">
+    <div class="modal-box modal-box-wide">
+      <button class="modal-close-x" title="关闭">✕</button>
+      <h3 id="studentDetailTitle">学生答题详情</h3>
+      <div id="studentDetailContent" class="list"></div>
+      <div class="modal-actions">
+        <button type="button" class="secondary" id="cancelStudentDetail">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./v2/js/teacher/app.js?v=2026062036"></script>
 </body>
 </html>
