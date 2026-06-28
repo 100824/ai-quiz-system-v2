@@ -21,6 +21,7 @@ const state = {
 };
 
 const TEACHER_PASSWORD = '0506';
+const OTHER_OPTION_TEXT = '其它：____';
 let appStarted = false;
 let savingQuestionInFlight = false;
 
@@ -146,9 +147,10 @@ function renderClassCourseBinding() {
   }
   const selected = new Set(state.boundCourseIds);
   list.innerHTML = state.courses.map((course) => `
-    <label class="class-course-option">
+    <label class="class-course-option ${selected.has(course.id) ? 'is-selected' : ''}">
       <input type="checkbox" value="${course.id}" ${selected.has(course.id) ? 'checked' : ''}>
-      <span>
+      <span class="class-course-option__check" aria-hidden="true">✓</span>
+      <span class="class-course-option__body">
         <strong>${escapeHtml(course.title)}</strong>
         <small>${escapeHtml(course.mode || course.templateCode || 'custom')}</small>
       </span>
@@ -1193,6 +1195,17 @@ function addQuestionOption(value = '') {
   $('editOptionsList').appendChild(row);
 }
 
+function addOtherQuestionOption() {
+  const inputs = Array.from(document.querySelectorAll('#editOptionsList .question-option-input'));
+  const existing = inputs.find((input) => input.value.trim().replace(/_/g, '') === '其它：');
+  if (existing) {
+    existing.focus();
+    existing.select?.();
+    return;
+  }
+  addQuestionOption(OTHER_OPTION_TEXT);
+}
+
 function refreshQuestionOptionIndexes() {
   document.querySelectorAll('#editOptionsList .question-option-row').forEach((row, index) => {
     row.querySelector('.question-option-index').textContent = `${index + 1}.`;
@@ -1374,6 +1387,7 @@ function bindForms() {
   $on('cancelQuestionEdit', 'click', closeQuestionModal);
   $on('saveQuestionBtn', 'click', saveQuestionFromModal);
   $on('addOptionBtn', 'click', () => addQuestionOption());
+  $on('addOtherOptionBtn', 'click', addOtherQuestionOption);
   $on('editQuestionType', 'change', updateQuestionTypeFields);
   $on('editQuestionTitle', 'input', renderQuestionImagePreview);
   $on('uploadQuestionImageBtn', 'click', () => uploadImageForInput($('editQuestionTitle')));
@@ -1400,6 +1414,11 @@ function bindForms() {
   });
 
   $on('saveClassCourseBindingBtn', 'click', saveClassCourseBinding);
+  $on('classCourseBindingList', 'change', (event) => {
+    const input = event.target.closest('input[type="checkbox"]');
+    if (!input) return;
+    input.closest('.class-course-option')?.classList.toggle('is-selected', input.checked);
+  });
 
   $on('deleteSelectedCourseBtn', 'click', async () => {
     if (!state.selectedCourseId) {

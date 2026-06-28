@@ -1180,19 +1180,54 @@
   align-items: center;
   min-height: 54px;
   padding: 10px 12px;
-  border: 1px solid #d0e4f5;
+  border: 2px solid #d0e4f5;
   border-radius: 12px;
   background: #fbfdff;
   cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
 .class-course-option input {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.class-course-option span {
+.class-course-option:hover {
+  border-color: #9fc6ec;
+  background: #f5faff;
+}
+
+.class-course-option.is-selected {
+  border-color: #52c78a;
+  background: #f2fbf6;
+  box-shadow: inset 0 0 0 2px rgba(82, 199, 138, 0.16);
+}
+
+.class-course-option__check {
+  display: inline-flex;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #edf3fa;
+  color: transparent;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.class-course-option.is-selected .class-course-option__check {
+  background: #d8f7e4;
+  color: #1f9d58;
+}
+
+.class-course-option__body {
   display: grid;
   gap: 1px;
   min-width: 0;
@@ -1836,6 +1871,49 @@ body.student-page::after {
   display: block;
 }
 
+.student-stage-block .option--other .option-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.choice-other-label {
+  flex: 0 0 auto;
+  font-weight: 800;
+  color: #2f5d96;
+}
+
+.choice-other-input {
+  flex: 1;
+  min-width: 180px;
+  height: 42px;
+  padding: 8px 12px;
+  border: 2px solid #c9dff3;
+  border-radius: 12px;
+  background: #fff;
+  color: #20364d;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.choice-other-input:focus {
+  border-color: var(--success-color);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(82, 199, 138, 0.18);
+}
+
+@media (max-width: 768px) {
+  .student-stage-block .option--other .option-text {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .choice-other-input {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 .score-compare-grid {
   display: none;
 }
@@ -2191,6 +2269,13 @@ body.student-page::after {
   padding: 8px 14px;
   font-size: 14px;
   border-width: 2px;
+}
+
+.question-option-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .image-edit-field {

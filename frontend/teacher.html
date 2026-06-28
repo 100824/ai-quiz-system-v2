@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>人工智能学习平台 - 教师管理后台</title>
   <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
-  <link rel="stylesheet" href="./v2/css/app.css?v=2026062033">
+  <link rel="stylesheet" href="./v2/css/app.css?v=2026062035">
 </head>
 <body>
   <div id="passwordOverlay" class="teacher-password-overlay">
@@ -222,7 +222,10 @@
         <div id="editOptionsGroup">
           <label>选项</label>
           <div id="editOptionsList"></div>
-          <button type="button" class="secondary" id="addOptionBtn">+ 新增选项</button>
+          <div class="question-option-actions">
+            <button type="button" class="secondary" id="addOptionBtn">+ 新增选项</button>
+            <button type="button" class="secondary" id="addOtherOptionBtn">+ 其它选项</button>
+          </div>
         </div>
         <div id="editCorrectAnswerGroup">
           <label>正确答案</label>
@@ -255,6 +258,6 @@
     </div>
   </div>
 
-  <script type="module" src="./v2/js/teacher/app.js?v=2026062036"></script>
+  <script type="module" src="./v2/js/teacher/app.js?v=2026062038"></script>
 </body>
 </html>

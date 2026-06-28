@@ -26,6 +26,7 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+const OTHER_OPTION_LABEL = '其它';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -918,10 +919,16 @@ function renderQuestion(question) {
   const optionHtml = options.map((item, index) => {
     const value = optionValue(item, index);
     const optionId = `q_${question.id}_${index}`;
+    const isOther = isOtherOption(item);
     return `
-      <label class="option" for="${optionId}">
+      <label class="option${isOther ? ' option--other' : ''}" for="${optionId}" data-option-index="${index}" data-other-option="${isOther ? 'true' : 'false'}">
         <input type="${question.type === 'multiple_choice' ? 'checkbox' : 'radio'}" id="${optionId}" name="q_${question.id}" value="${safeHtml(value)}">
-        <span class="option-text">${renderRichText(item)}</span>
+        <span class="option-text">
+          ${isOther ? `
+            <span class="choice-other-label">${OTHER_OPTION_LABEL}：</span>
+            <input type="text" class="choice-other-input" data-question-id="${question.id}" data-option-index="${index}" placeholder="请填写其它内容">
+          ` : renderRichText(item)}
+        </span>
       </label>
     `;
   }).join('');
@@ -982,9 +989,17 @@ function setupChoiceOptions(scope = document) {
       syncChoiceOptionState(syncScope);
     });
     option.addEventListener('pointerdown', (event) => {
+      if (event.target.closest('.choice-other-input')) return;
       event.preventDefault();
     });
     option.addEventListener('click', (event) => {
+      if (event.target.closest('.choice-other-input')) {
+        if (!input.checked) {
+          input.checked = true;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       if (input.type === 'checkbox') {
@@ -994,6 +1009,19 @@ function setupChoiceOptions(scope = document) {
       }
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
+  });
+  scope.querySelectorAll('.choice-other-input').forEach((textInput) => {
+    if (textInput.dataset.otherBound === 'true') return;
+    textInput.dataset.otherBound = 'true';
+    const option = textInput.closest('.option');
+    const choiceInput = option?.querySelector('input[type="radio"], input[type="checkbox"]');
+    const activate = () => {
+      if (!choiceInput || choiceInput.checked) return;
+      choiceInput.checked = true;
+      choiceInput.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    textInput.addEventListener('focus', activate);
+    textInput.addEventListener('input', activate);
   });
   syncChoiceOptionState(scope);
 }
@@ -1161,8 +1189,20 @@ function renderRichExplanationContent(content) {
     .replace(/\n/g, '<br>');
 }
 
+function isOtherOption(value) {
+  const text = String(value ?? '').trim().replace(/\s+/g, '');
+  return /^其[它他][:：_]+$/.test(text) || /^其[它他][:：]/.test(text);
+}
+
+function otherAnswerValue(questionId, optionIndex) {
+  const input = document.querySelector(`.choice-other-input[data-question-id="${questionId}"][data-option-index="${optionIndex}"]`);
+  const text = input?.value.trim() || '';
+  return text ? `${OTHER_OPTION_LABEL}：${text}` : '';
+}
+
 function optionValue(text, index) {
   const raw = String(text || '').trim();
+  if (isOtherOption(raw)) return `other_${index}`;
   const match = raw.match(/^([A-Z])[\.\s、]/i);
   if (match) return match[1].toUpperCase();
   const scoreMatch = raw.match(/^(\d+)分/);
@@ -1498,15 +1538,31 @@ function collectCurrentAnswers(questions = state.currentQuestions) {
       continue;
     }
     if (question.type === 'multiple_choice') {
-      const checked = Array.from(document.querySelectorAll(`input[name="q_${question.id}"]:checked`)).map((item) => item.value);
+      let blankOtherSelected = false;
+      const checked = Array.from(document.querySelectorAll(`input[name="q_${question.id}"]:checked`)).map((item) => {
+        const option = item.closest('.option');
+        if (option?.dataset.otherOption === 'true') {
+          const otherValue = otherAnswerValue(question.id, option.dataset.optionIndex || 0);
+          if (!otherValue) blankOtherSelected = true;
+          return otherValue;
+        }
+        return item.value;
+      }).filter(Boolean);
       if (!checked.length) missing.push(question.title);
+      if (blankOtherSelected) missing.push(`${question.title}（请填写其它内容）`);
       answers[key] = checked;
       continue;
     }
     if (question.type === 'single_choice') {
       const checked = document.querySelector(`input[name="q_${question.id}"]:checked`);
       if (!checked) missing.push(question.title);
-      answers[key] = checked?.value || '';
+      const option = checked?.closest('.option');
+      answers[key] = option?.dataset.otherOption === 'true'
+        ? otherAnswerValue(question.id, option.dataset.optionIndex || 0)
+        : checked?.value || '';
+      if (checked && option?.dataset.otherOption === 'true' && !answers[key]) {
+        missing.push(`${question.title}（请填写其它内容）`);
+      }
       continue;
     }
     const textarea = document.querySelector(`textarea[name="q_${question.id}"]`);
