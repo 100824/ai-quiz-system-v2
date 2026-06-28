@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>人工智能学习平台 - 教师管理后台</title>
   <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
-  <link rel="stylesheet" href="./v2/css/app.css?v=2026062036">
+  <link rel="stylesheet" href="./v2/css/app.css?v=2026062037">
 </head>
 <body>
   <div id="passwordOverlay" class="teacher-password-overlay">
@@ -105,11 +105,15 @@
 
     <section id="question" class="tab-content">
       <div class="grid">
-        <div class="panel span-5">
+        <div class="panel span-5 question-course-manage-panel">
           <div class="section-heading">
             <h2>题目管理</h2>
           </div>
-          <button type="button" id="showCreateCourseBtn">➕ 创建课堂</button>
+          <p class="panel-hint">在这里创建新课堂，或删除当前正在编辑的课堂。</p>
+          <div class="course-manage-actions">
+            <button type="button" id="showCreateCourseBtn">➕ 创建课堂</button>
+            <button type="button" class="danger" id="deleteSelectedCourseBtn">删除当前课堂</button>
+          </div>
           <form id="courseForm" class="form-row hidden">
             <input id="courseTitle" placeholder="课堂名称" required>
             <select id="courseTemplate"></select>
@@ -119,15 +123,14 @@
               <button type="button" class="secondary" id="cancelCreateCourseBtn">取消</button>
             </div>
           </form>
-          <label>选择要编辑的课堂</label>
-          <select id="questionCourseSelect"></select>
-          <div class="inline-row question-toolbar">
-            <button type="button" class="danger" id="deleteSelectedCourseBtn">删除当前课堂</button>
-          </div>
         </div>
 
         <div class="panel span-7">
           <h2>部分与题目</h2>
+          <div class="question-section-block question-course-select-block">
+            <label for="questionCourseSelect">选择要编辑的课堂</label>
+            <select id="questionCourseSelect"></select>
+          </div>
           <div class="question-section-block">
             <h3>新增部分</h3>
             <form id="sectionForm" class="section-create-row">
