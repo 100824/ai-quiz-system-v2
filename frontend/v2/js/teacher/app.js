@@ -2,6 +2,7 @@ import { api, apiBase } from '../core/api.js';
 import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { renderAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
+import { renderRichText } from '../core/rich-text.js';
 
 const legacyApiBase = () => `${window.location.protocol}//${window.location.hostname}:8080/api`;
 
@@ -267,7 +268,7 @@ async function loadQuestions() {
   renderList($('questionList'), state.questions, (item) => `
     <div class="item">
       <div class="item-title">
-        <span>${escapeHtml(item.title)}</span>
+        <span>${renderRichText(item.title)}</span>
         <span class="badge">${item.enabled ? '启用' : '停用'}</span>
       </div>
       <div class="meta">${questionTypeLabel(item.type)} · ${item.score || 0} 分</div>
@@ -385,6 +386,26 @@ function insertTextAtCursor(input, text) {
   const next = start + text.length;
   input.focus();
   input.setSelectionRange?.(next, next);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function applyQuestionRichFormat(targetId, format) {
+  const input = $(targetId);
+  if (!input) return;
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  const selected = input.value.slice(start, end);
+  const fallback = format === 'red' ? '标红文字' : '加粗文字';
+  const content = selected || fallback;
+  const before = format === 'red' ? '{{red:' : '**';
+  const after = format === 'red' ? '}}' : '**';
+  const replacement = `${before}${content}${after}`;
+  input.value = `${input.value.slice(0, start)}${replacement}${input.value.slice(end)}`;
+  const selectionStart = start + before.length;
+  const selectionEnd = selectionStart + content.length;
+  input.focus();
+  input.setSelectionRange?.(selectionStart, selectionEnd);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function extractImageTokens(text) {
@@ -743,7 +764,7 @@ function renderStats() {
                       <span>第${item.sortOrder || (index + 1)}题</span>
                       <span class="badge">${item.correctRate ?? 0}%</span>
                     </div>
-                    <div class="meta">${escapeHtml(item.questionText || '')}</div>
+                    <div class="meta">${renderRichText(item.questionText || '')}</div>
                     <div class="meta">${item.correctCount || 0}/${item.totalCount || 0} 人答对</div>
                   </div>
                 `).join('')}
@@ -935,7 +956,7 @@ function renderStudentDetail(detail) {
               ${(Array.isArray(attempt.questions) ? attempt.questions : []).map((question, qIndex) => question.questionType === 'ai_chat' ? `
                 <div class="student-detail-question student-detail-question--correct">
                   <div class="item-title">
-                    <span>${qIndex + 1}. ${escapeHtml(question.questionText || '')}</span>
+                    <span>${qIndex + 1}. ${renderRichText(question.questionText || '')}</span>
                     <span class="badge">AI 对话</span>
                   </div>
                   <div class="meta">题型：AI 对话题 · 轮次：${(question.chatMessages || []).filter((item) => item.role === 'user').length}</div>
@@ -944,7 +965,7 @@ function renderStudentDetail(detail) {
               ` : question.questionType === 'open_text' ? `
                 <div class="student-detail-question student-detail-question--open-text">
                   <div class="item-title">
-                    <span>${qIndex + 1}. ${escapeHtml(question.questionText || '')}</span>
+                    <span>${qIndex + 1}. ${renderRichText(question.questionText || '')}</span>
                     <span class="badge">颜色标注开放题</span>
                   </div>
                   <div class="meta">已保留学生提交时的颜色标注</div>
@@ -957,7 +978,7 @@ function renderStudentDetail(detail) {
               ` : `
                 <div class="student-detail-question ${question.isCorrect ? 'student-detail-question--correct' : 'student-detail-question--wrong'}">
                   <div class="item-title">
-                    <span>${qIndex + 1}. ${escapeHtml(question.questionText || '')}</span>
+                    <span>${qIndex + 1}. ${renderRichText(question.questionText || '')}</span>
                     <span class="badge">${question.isCorrect ? '正确' : '错误'}</span>
                   </div>
                   <div class="meta">题型：${escapeHtml(question.questionType || '-')} · 分值：${question.score ?? 0}</div>
@@ -1391,6 +1412,11 @@ function bindForms() {
   $on('editQuestionType', 'change', updateQuestionTypeFields);
   $on('editQuestionTitle', 'input', renderQuestionImagePreview);
   $on('uploadQuestionImageBtn', 'click', () => uploadImageForInput($('editQuestionTitle')));
+  document.querySelectorAll('[data-question-rich-format][data-rich-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyQuestionRichFormat(button.dataset.richTarget, button.dataset.questionRichFormat);
+    });
+  });
   $on('questionModal', 'click', (event) => {
     if (event.target === $('questionModal')) closeQuestionModal();
   });

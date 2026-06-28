@@ -1,6 +1,7 @@
 import { api, apiBase } from '../core/api.js';
 import { renderAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
+import { renderRichText } from '../core/rich-text.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -180,7 +181,7 @@ function renderDetailQuestion(question, index) {
     return `
       <div class="history-question-card history-question-card--cool">
         <p class="history-question-card__title">第 ${index + 1} 题 · AI 对话题</p>
-        <p class="history-question-card__text">${escapeHtml(question.questionText || '')}</p>
+        <p class="history-question-card__text">${renderRichText(question.questionText || '')}</p>
         ${renderChatMessages(question.chatMessages || [])}
       </div>
     `;
@@ -190,7 +191,7 @@ function renderDetailQuestion(question, index) {
     return `
       <div class="history-question-card history-question-card--open-text">
         <p class="history-question-card__title">第 ${index + 1} 题 · 颜色标注开放题</p>
-        <p class="history-question-card__text">${escapeHtml(question.questionText || '')}</p>
+        <p class="history-question-card__text">${renderRichText(question.questionText || '')}</p>
         <div class="history-answer-grid">
           <div class="history-answer-row history-answer-row--stacked">
             <div class="history-answer-label">我的答案</div>
@@ -212,7 +213,7 @@ function renderDetailQuestion(question, index) {
   return `
     <div class="history-question-card ${question.isCorrect ? 'history-question-card--cool' : 'history-question-card--warm'}">
       <p class="history-question-card__title">第 ${index + 1} 题 · ${escapeHtml(question.questionType || '')}</p>
-      <p class="history-question-card__text">${escapeHtml(question.questionText || '')}</p>
+      <p class="history-question-card__text">${renderRichText(question.questionText || '')}</p>
       <div class="history-answer-grid">
         <div class="history-answer-row">
           <div class="history-answer-label">我的答案</div>

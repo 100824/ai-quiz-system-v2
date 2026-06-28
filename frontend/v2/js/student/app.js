@@ -2,6 +2,7 @@ import { api, apiBase } from '../core/api.js';
 import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { countAnnotatedHighlights, renderAnnotatedAnswer, sanitizeAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
+import { renderRichText } from '../core/rich-text.js';
 
 const state = {
   classes: [],
@@ -70,21 +71,6 @@ function resolveImageUrl(url) {
     return `${window.location.protocol}//${window.location.hostname}:8080${url}`;
   }
   return url;
-}
-
-function renderRichText(value) {
-  const pattern = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
-  let html = '';
-  let lastIndex = 0;
-  let match;
-  const text = String(value ?? '');
-  while ((match = pattern.exec(text)) !== null) {
-    html += safeHtml(text.slice(lastIndex, match.index)).replace(/\n/g, '<br>');
-    html += `<img class="question-inline-image" src="${safeHtml(resolveImageUrl(match[2]))}" alt="${safeHtml(match[1] || '图片')}" loading="lazy">`;
-    lastIndex = match.index + match[0].length;
-  }
-  html += safeHtml(text.slice(lastIndex)).replace(/\n/g, '<br>');
-  return html;
 }
 
 function currentCourse() {
@@ -938,7 +924,7 @@ function renderQuestion(question) {
   return `
     <div class="item">
       <div class="item-title">${renderRichText(question.title)}</div>
-      ${question.description ? `<div class="meta">${safeHtml(question.description).replace(/\n/g, '<br>')}</div>` : ''}
+      ${question.description ? `<div class="meta">${renderRichText(question.description)}</div>` : ''}
       <div class="meta">${safeHtml(questionTypeLabel(question.type))}</div>
       ${question.type === 'open_text'
         ? renderOpenTextQuestion(question)
@@ -956,7 +942,7 @@ function renderAIChatQuestion(question) {
   return `
     <div class="item ai-chat-question" data-question-id="${question.id}">
       <div class="item-title">${renderRichText(normalizeAIChatTitle(question.title))}</div>
-      ${question.description ? `<div class="meta">${safeHtml(question.description).replace(/\n/g, '<br>')}</div>` : ''}
+      ${question.description ? `<div class="meta">${renderRichText(question.description)}</div>` : ''}
       <div class="meta">AI 对话题 · 已对话 <span id="ai-chat-rounds-${question.id}">${rounds}</span> / 5 轮</div>
       <div class="ai-chat-box">
         <div id="ai-chat-messages-${question.id}" class="ai-chat-messages">${renderAIChatMessages(messages, pending)}</div>

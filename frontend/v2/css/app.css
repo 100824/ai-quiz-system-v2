@@ -2278,6 +2278,30 @@ body.student-page::after {
   margin-top: 10px;
 }
 
+.question-rich-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.question-rich-toolbar button {
+  min-width: 86px;
+  margin-bottom: 0;
+  padding: 10px 16px;
+}
+
+.question-rich-toolbar .rich-red-btn {
+  border-color: #ffd3d6;
+  background: #fff5f5;
+  color: #d83a46;
+}
+
+.question-rich-red {
+  color: #e63946;
+  font-weight: 800;
+}
+
 .image-edit-field {
   display: grid;
   gap: 10px;
