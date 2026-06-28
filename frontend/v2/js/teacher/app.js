@@ -1109,6 +1109,82 @@ function closeAddStudentModal() {
   $('addStudentModal').classList.add('hidden');
 }
 
+function openCreateCourseModal() {
+  $('courseForm').reset();
+  $('createCourseModal').classList.remove('hidden');
+  $('courseTitle').focus();
+}
+
+function closeCreateCourseModal() {
+  $('createCourseModal').classList.add('hidden');
+}
+
+function renderDeleteCourseList() {
+  const list = $('deleteCourseList');
+  if (!list) return;
+  if (!state.courses.length) {
+    list.innerHTML = '<div class="empty">当前还没有课堂。</div>';
+    return;
+  }
+  list.innerHTML = state.courses.map((course) => `
+    <label class="delete-course-option ${course.id === state.selectedCourseId ? 'is-current' : ''}">
+      <input type="checkbox" value="${course.id}">
+      <span class="delete-course-option__check" aria-hidden="true">✓</span>
+      <span class="delete-course-option__body">
+        <strong>${escapeHtml(course.title)}</strong>
+        <small>${escapeHtml(course.mode || course.templateCode || 'custom')}${course.id === state.selectedCourseId ? ' · 当前正在编辑' : ''}</small>
+      </span>
+    </label>
+  `).join('');
+}
+
+function openDeleteCourseModal() {
+  renderDeleteCourseList();
+  $('deleteCourseModal').classList.remove('hidden');
+}
+
+function closeDeleteCourseModal() {
+  $('deleteCourseModal').classList.add('hidden');
+}
+
+async function submitDeleteCourses() {
+  const ids = Array.from(document.querySelectorAll('#deleteCourseList input[type="checkbox"]:checked'))
+    .map((input) => Number(input.value))
+    .filter(Boolean);
+  if (!ids.length) {
+    alert('请先勾选要删除的课堂');
+    return;
+  }
+  const titles = state.courses
+    .filter((course) => ids.includes(course.id))
+    .map((course) => course.title)
+    .join('、');
+  if (!confirm(`确定删除以下 ${ids.length} 个课堂吗？\n${titles}`)) return;
+
+  const button = $('confirmDeleteCourseBtn');
+  button?.setAttribute('disabled', 'disabled');
+  if (button) button.textContent = '删除中...';
+  try {
+    for (const id of ids) {
+      await api(`/courses/${id}`, { method: 'DELETE' });
+    }
+    if (ids.includes(state.selectedCourseId)) {
+      state.selectedCourseId = null;
+      state.selectedSectionId = null;
+    }
+    closeDeleteCourseModal();
+    await loadAll();
+    alert('课堂删除成功');
+  } catch (error) {
+    alert(`删除课堂失败：${error.message}`);
+  } finally {
+    if (button) {
+      button.removeAttribute('disabled');
+      button.textContent = '确认删除';
+    }
+  }
+}
+
 async function submitBatchStudents() {
   const raw = $('batchStudentInput').value || '';
   const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -1361,23 +1437,29 @@ function bindForms() {
         })
       });
       event.target.reset();
-      $('courseForm').classList.add('hidden');
-      $('showCreateCourseBtn').classList.remove('hidden');
+      closeCreateCourseModal();
       await loadAll();
+      alert('课堂创建成功');
     } catch (error) {
       alert(`创建课堂失败：${error.message}`);
     }
   });
 
-  $on('showCreateCourseBtn', 'click', () => {
-    $('showCreateCourseBtn').classList.add('hidden');
-    $('courseForm').classList.remove('hidden');
-    $('courseTitle').focus();
+  $on('showCreateCourseBtn', 'click', openCreateCourseModal);
+  $on('cancelCreateCourseBtn', 'click', closeCreateCourseModal);
+  $on('createCourseModal', 'click', (event) => {
+    if (event.target === $('createCourseModal')) closeCreateCourseModal();
   });
-
-  $on('cancelCreateCourseBtn', 'click', () => {
-    $('courseForm').classList.add('hidden');
-    $('showCreateCourseBtn').classList.remove('hidden');
+  $on('deleteSelectedCourseBtn', 'click', openDeleteCourseModal);
+  $on('cancelDeleteCourseBtn', 'click', closeDeleteCourseModal);
+  $on('confirmDeleteCourseBtn', 'click', submitDeleteCourses);
+  $on('deleteCourseModal', 'click', (event) => {
+    if (event.target === $('deleteCourseModal')) closeDeleteCourseModal();
+  });
+  $on('deleteCourseList', 'change', (event) => {
+    const input = event.target.closest('input[type="checkbox"]');
+    if (!input) return;
+    input.closest('.delete-course-option')?.classList.toggle('is-selected', input.checked);
   });
 
   $on('sectionForm', 'submit', async (event) => {
@@ -1446,22 +1528,6 @@ function bindForms() {
     input.closest('.class-course-option')?.classList.toggle('is-selected', input.checked);
   });
 
-  $on('deleteSelectedCourseBtn', 'click', async () => {
-    if (!state.selectedCourseId) {
-      alert('请先选择要删除的课堂');
-      return;
-    }
-    if (!confirm('确定要删除当前课堂吗？')) return;
-    try {
-      await api(`/courses/${state.selectedCourseId}`, { method: 'DELETE' });
-      state.selectedCourseId = null;
-      state.selectedSectionId = null;
-      await loadAll();
-    } catch (error) {
-      alert(`删除课堂失败：${error.message}`);
-    }
-  });
-
   $on('refreshStatsBtn', 'click', loadStats);
   $on('exportStatsBtn', 'click', () => {
     const params = new URLSearchParams();
@@ -1484,6 +1550,8 @@ function bindForms() {
   // 弹窗右上角 ✕ 关闭按钮 — 统一事件委托
   const modalCloseMap = {
     createClassModal: closeCreateClassModal,
+    createCourseModal: closeCreateCourseModal,
+    deleteCourseModal: closeDeleteCourseModal,
     addStudentModal: closeAddStudentModal,
     questionModal: closeQuestionModal,
     studentDetailModal: closeStudentDetailModal,
