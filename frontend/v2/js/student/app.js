@@ -28,6 +28,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const OTHER_OPTION_LABEL = '其它';
+const AI_CHAT_GUIDE_TEXT = '请在下方对话框中与AI讨论本次任务的问题，请至少完成一轮对话。';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -191,7 +192,7 @@ function renderAIChatThinking() {
 function renderAIChatMessages(messages = [], pending = false) {
   const normalized = normalizeChatMessages(messages);
   if (!normalized.length) {
-    return '<div class="ai-chat-empty">先问 AI 一个学习相关的问题，完成至少一轮对话后就可以提交本部分。</div>';
+    return `<div class="ai-chat-empty">${AI_CHAT_GUIDE_TEXT}</div>`;
   }
   const rendered = normalized.map((item) => `
     <div class="ai-chat-message ai-chat-message--${item.role === 'user' ? 'user' : 'assistant'}">
@@ -950,7 +951,7 @@ function renderAIChatQuestion(question) {
           <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="请输入学习相关的问题，例如：人工智能为什么能理解文字？" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
           <button type="button" class="ai-chat-send-btn" data-question-id="${question.id}" ${reachedLimit ? 'disabled' : ''}>${reachedLimit ? '已达上限' : '发送'}</button>
         </div>
-        <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? '已达到 5 轮上限，可以提交本部分。' : '模型会用五年级同学能理解的方式回答，只支持学习相关问题。'}</div>
+        <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? '已达到 5 轮上限，可以提交本部分。' : AI_CHAT_GUIDE_TEXT}</div>
       </div>
     </div>
   `;
