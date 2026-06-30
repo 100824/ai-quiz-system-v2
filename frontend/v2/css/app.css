@@ -333,6 +333,12 @@
   display: inline;
 }
 
+.student-question-title strong {
+  color: #16283c;
+  font-weight: 900;
+  text-shadow: 0 0 0 currentColor;
+}
+
 .meta {
   font-size: 14px;
   color: #5a85a8;
