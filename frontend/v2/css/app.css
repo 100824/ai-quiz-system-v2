@@ -320,6 +320,19 @@
   color: #2c3e50;
 }
 
+.student-question-title {
+  display: block;
+  justify-content: initial;
+  align-items: initial;
+  gap: 0;
+  word-break: break-word;
+}
+
+.student-question-title strong,
+.student-question-title .question-rich-red {
+  display: inline;
+}
+
 .meta {
   font-size: 14px;
   color: #5a85a8;

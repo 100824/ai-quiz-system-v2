@@ -924,7 +924,7 @@ function renderQuestion(question) {
     : `<textarea name="q_${question.id}" placeholder="写下你的想法"></textarea>`;
   return `
     <div class="item">
-      <div class="item-title">${renderRichText(question.title)}</div>
+      <div class="item-title student-question-title">${renderRichText(question.title)}</div>
       ${question.description ? `<div class="meta">${renderRichText(question.description)}</div>` : ''}
       <div class="meta">${safeHtml(questionTypeLabel(question.type))}</div>
       ${question.type === 'open_text'
@@ -942,7 +942,7 @@ function renderAIChatQuestion(question) {
   setStoredAIChatMessages(question.id, messages);
   return `
     <div class="item ai-chat-question" data-question-id="${question.id}">
-      <div class="item-title">${renderRichText(normalizeAIChatTitle(question.title))}</div>
+      <div class="item-title student-question-title">${renderRichText(normalizeAIChatTitle(question.title))}</div>
       ${question.description ? `<div class="meta">${renderRichText(question.description)}</div>` : ''}
       <div class="meta">AI 对话题 · 已对话 <span id="ai-chat-rounds-${question.id}">${rounds}</span> / 5 轮</div>
       <div class="ai-chat-box">
