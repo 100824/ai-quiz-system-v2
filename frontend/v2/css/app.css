@@ -2428,6 +2428,44 @@ body.student-page::after {
   color: #d83a46;
 }
 
+.question-rich-editor {
+  min-height: 112px;
+  padding: 14px 16px;
+  border: 2px solid #c7daf1;
+  border-radius: 16px;
+  background: #fbfdff;
+  color: #26394f;
+  font-size: 16px;
+  line-height: 1.7;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+}
+
+.question-rich-editor--small {
+  min-height: 84px;
+}
+
+.question-rich-editor:focus {
+  border-color: #5b9bd5;
+  box-shadow: 0 0 0 4px rgba(91, 155, 213, 0.14);
+}
+
+.question-rich-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #8a9cb0;
+}
+
+.question-rich-editor .question-inline-image {
+  display: block;
+  max-width: min(320px, 100%);
+  margin: 10px 0;
+  border: 2px solid #d7e8f8;
+  border-radius: 14px;
+  background: #fff;
+}
+
 .question-rich-red {
   color: #e63946;
   font-weight: 800;

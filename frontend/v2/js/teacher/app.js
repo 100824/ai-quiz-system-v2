@@ -380,6 +380,10 @@ function resolveImageUrl(url) {
 }
 
 function insertTextAtCursor(input, text) {
+  if (input?.isContentEditable) {
+    insertTextIntoRichEditor(input, text);
+    return;
+  }
   const start = input.selectionStart ?? input.value.length;
   const end = input.selectionEnd ?? input.value.length;
   input.value = `${input.value.slice(0, start)}${text}${input.value.slice(end)}`;
@@ -389,23 +393,152 @@ function insertTextAtCursor(input, text) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function richTextToEditorHtml(value) {
+  const raw = String(value ?? '');
+  const imageTokens = [];
+  let text = raw.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_match, alt, url) => {
+    const token = `@@IMAGE_${imageTokens.length}@@`;
+    imageTokens.push({ token, alt: alt || '图片', url });
+    return token;
+  });
+  text = escapeHtml(text);
+  text = text.replace(/\{\{red:([^{}\n]+)\}\}/g, '<span class="question-rich-red">$1</span>');
+  text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  imageTokens.forEach((image) => {
+    const html = `<img class="question-inline-image" src="${escapeHtml(resolveImageUrl(image.url))}" alt="${escapeHtml(image.alt)}" data-rich-image-url="${escapeHtml(image.url)}">`;
+    text = text.replace(escapeHtml(image.token), html);
+  });
+  return text.replace(/\n/g, '<br>');
+}
+
+function normalizeRichImageUrl(value) {
+  const text = String(value || '');
+  const marker = '/api/';
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex >= 0) return text.slice(markerIndex);
+  return text;
+}
+
+function editorNodeToRichText(node) {
+  if (!node) return '';
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+  if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+  const tag = node.tagName;
+  if (tag === 'BR') return '\n';
+  if (tag === 'IMG') {
+    const alt = node.getAttribute('alt') || '图片';
+    const url = node.getAttribute('data-rich-image-url') || normalizeRichImageUrl(node.getAttribute('src') || '');
+    return `![${alt}](${url})`;
+  }
+
+  const content = Array.from(node.childNodes).map(editorNodeToRichText).join('');
+  if (tag === 'STRONG' || tag === 'B') return `**${content}**`;
+  if (node.classList?.contains('question-rich-red')) return `{{red:${content}}}`;
+  if (tag === 'DIV' || tag === 'P') return `${content}\n`;
+  return content;
+}
+
+function richEditorToText(editor) {
+  return Array.from(editor.childNodes)
+    .map(editorNodeToRichText)
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n$/g, '');
+}
+
+function syncRichEditorToSource(editor) {
+  const sourceId = editor?.dataset?.richSource;
+  if (!sourceId) return;
+  const source = $(sourceId);
+  if (source) source.value = richEditorToText(editor);
+  if (sourceId === 'editQuestionTitle') renderQuestionImagePreview();
+}
+
+function setRichEditorValue(editorId, value) {
+  const editor = $(editorId);
+  if (!editor) return;
+  editor.innerHTML = richTextToEditorHtml(value);
+  syncRichEditorToSource(editor);
+}
+
+function focusRichEditor(editorId) {
+  const editor = $(editorId);
+  if (!editor) return;
+  editor.focus();
+}
+
+function selectedRangeInEditor(editor) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  return editor.contains(range.commonAncestorContainer) ? range : null;
+}
+
+function insertTextIntoRichEditor(editor, text) {
+  editor.focus();
+  let range = selectedRangeInEditor(editor);
+  if (!range) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  range.deleteContents();
+  range.insertNode(document.createTextNode(text));
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  syncRichEditorToSource(editor);
+}
+
+function insertImageIntoRichEditor(editor, url, alt = '图片') {
+  editor.focus();
+  let range = selectedRangeInEditor(editor);
+  if (!range) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  const image = document.createElement('img');
+  image.className = 'question-inline-image';
+  image.src = resolveImageUrl(url);
+  image.alt = alt;
+  image.dataset.richImageUrl = url;
+  range.deleteContents();
+  range.insertNode(image);
+  range.setStartAfter(image);
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  syncRichEditorToSource(editor);
+}
+
 function applyQuestionRichFormat(targetId, format) {
-  const input = $(targetId);
-  if (!input) return;
-  const start = input.selectionStart ?? input.value.length;
-  const end = input.selectionEnd ?? input.value.length;
-  const selected = input.value.slice(start, end);
+  const editor = $(targetId);
+  if (!editor) return;
+  editor.focus();
+  let range = selectedRangeInEditor(editor);
+  if (!range) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  const selected = range.toString();
   const fallback = format === 'red' ? '标红文字' : '加粗文字';
   const content = selected || fallback;
-  const before = format === 'red' ? '{{red:' : '**';
-  const after = format === 'red' ? '}}' : '**';
-  const replacement = `${before}${content}${after}`;
-  input.value = `${input.value.slice(0, start)}${replacement}${input.value.slice(end)}`;
-  const selectionStart = start + before.length;
-  const selectionEnd = selectionStart + content.length;
-  input.focus();
-  input.setSelectionRange?.(selectionStart, selectionEnd);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
+  const wrapper = document.createElement(format === 'red' ? 'span' : 'strong');
+  if (format === 'red') wrapper.className = 'question-rich-red';
+  wrapper.textContent = content;
+  range.deleteContents();
+  range.insertNode(wrapper);
+  const nextRange = document.createRange();
+  nextRange.selectNodeContents(wrapper);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(nextRange);
+  syncRichEditorToSource(editor);
 }
 
 function extractImageTokens(text) {
@@ -451,8 +584,12 @@ async function uploadImageForInput(input) {
       if (!res.ok || !data.success) {
         throw new Error(data.error || '上传失败');
       }
-      insertTextAtCursor(input, `![图片](${data.data.url})`);
-      if (input.id === 'editQuestionTitle') renderQuestionImagePreview();
+      if (input.isContentEditable) {
+        insertImageIntoRichEditor(input, data.data.url);
+      } else {
+        insertTextAtCursor(input, `![图片](${data.data.url})`);
+      }
+      if (input.id === 'editQuestionTitleEditor' || input.id === 'editQuestionTitle') renderQuestionImagePreview();
     } catch (error) {
       alert(`上传失败：${error.message}`);
     }
@@ -1232,8 +1369,8 @@ async function submitBatchStudents() {
 function resetQuestionModal() {
   $('editQuestionId').value = '';
   $('editQuestionType').value = 'single_choice';
-  $('editQuestionTitle').value = '';
-  $('editQuestionDescription').value = '';
+  setRichEditorValue('editQuestionTitleEditor', '');
+  setRichEditorValue('editQuestionDescriptionEditor', '');
   $('editCorrectAnswer').value = '';
   $('editQuestionScore').value = '0';
   $('editQuestionExplanation').value = '';
@@ -1249,8 +1386,8 @@ function openQuestionModal(question = null) {
     $('questionModalTitle').textContent = '编辑题目';
     $('editQuestionId').value = question.id;
     $('editQuestionType').value = question.type || 'single_choice';
-    $('editQuestionTitle').value = question.title || '';
-    $('editQuestionDescription').value = question.description || '';
+    setRichEditorValue('editQuestionTitleEditor', question.title || '');
+    setRichEditorValue('editQuestionDescriptionEditor', question.description || '');
     $('editQuestionScore').value = question.score || 0;
     $('editQuestionExplanation').value = question.explanation || '';
     $('editOptionsList').innerHTML = '';
@@ -1272,7 +1409,7 @@ function openQuestionModal(question = null) {
   updateQuestionTypeFields();
   renderQuestionImagePreview();
   $('questionModal').classList.remove('hidden');
-  $('editQuestionTitle').focus();
+  focusRichEditor('editQuestionTitleEditor');
 }
 
 function closeQuestionModal() {
@@ -1322,6 +1459,8 @@ async function saveQuestionFromModal() {
   const sectionId = state.selectedSectionId;
   const questionId = Number($('editQuestionId').value || 0);
   const type = $('editQuestionType').value;
+  syncRichEditorToSource($('editQuestionTitleEditor'));
+  syncRichEditorToSource($('editQuestionDescriptionEditor'));
   const title = $('editQuestionTitle').value.trim();
   const saveButton = $('saveQuestionBtn');
   if (!sectionId) {
@@ -1330,7 +1469,7 @@ async function saveQuestionFromModal() {
   }
   if (!title) {
     alert('请填写题目内容');
-    $('editQuestionTitle').focus();
+    focusRichEditor('editQuestionTitleEditor');
     return;
   }
 
@@ -1492,9 +1631,17 @@ function bindForms() {
   $on('addOptionBtn', 'click', () => addQuestionOption());
   $on('addOtherOptionBtn', 'click', addOtherQuestionOption);
   $on('editQuestionType', 'change', updateQuestionTypeFields);
-  $on('editQuestionTitle', 'input', renderQuestionImagePreview);
-  $on('uploadQuestionImageBtn', 'click', () => uploadImageForInput($('editQuestionTitle')));
+  document.querySelectorAll('.question-rich-editor').forEach((editor) => {
+    editor.addEventListener('input', () => syncRichEditorToSource(editor));
+    editor.addEventListener('paste', (event) => {
+      event.preventDefault();
+      const text = event.clipboardData?.getData('text/plain') || '';
+      insertTextIntoRichEditor(editor, text);
+    });
+  });
+  $on('uploadQuestionImageBtn', 'click', () => uploadImageForInput($('editQuestionTitleEditor')));
   document.querySelectorAll('[data-question-rich-format][data-rich-target]').forEach((button) => {
+    button.addEventListener('mousedown', (event) => event.preventDefault());
     button.addEventListener('click', () => {
       applyQuestionRichFormat(button.dataset.richTarget, button.dataset.questionRichFormat);
     });
