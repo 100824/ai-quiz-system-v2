@@ -336,8 +336,7 @@
 
 .student-question-title strong {
   color: #16283c;
-  font-weight: 900;
-  text-shadow: 0 0 0 currentColor;
+  font-weight: 600;
 }
 
 .meta {
