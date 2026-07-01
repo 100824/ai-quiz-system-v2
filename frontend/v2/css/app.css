@@ -325,6 +325,7 @@
   justify-content: initial;
   align-items: initial;
   gap: 0;
+  font-weight: 400;
   word-break: break-word;
 }
 
