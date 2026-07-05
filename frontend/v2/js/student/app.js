@@ -226,7 +226,17 @@ function latestQuestionChatMessages(questionId) {
 }
 
 function normalizeBlackboard(value) {
-  return String(value ?? '').trim();
+  return String(value ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .trim();
+}
+
+function renderBlackboardContent(value) {
+  return safeHtml(normalizeBlackboard(value)).replace(/\n/g, '<br>');
 }
 
 function applyTipLayout(visible) {
@@ -243,7 +253,7 @@ function updateTopBlackboard(blackboard) {
   const content = normalizeBlackboard(blackboard);
   const tipContent = $('tipContent');
   if (tipContent) {
-    tipContent.innerHTML = content ? safeHtml(content).replace(/\n/g, '<br>') : '';
+    tipContent.innerHTML = content ? renderBlackboardContent(content) : '';
   }
   applyTipLayout(!!content);
 }
@@ -361,9 +371,7 @@ function renderPrepSection(student, blackboard) {
           <span class="student-quiz-tag">课堂提示</span>
           <h3>请等待老师正式开启课堂</h3>
         </div>
-        <div class="student-prep-tip-content">
-          ${content ? safeHtml(content).replace(/\n/g, '<br>') : '老师还没有填写课堂提示语，请稍等。'}
-        </div>
+        <div class="student-prep-tip-content">${content ? renderBlackboardContent(content) : '老师还没有填写课堂提示语，请稍等。'}</div>
       </div>
     </section>
   `;
