@@ -631,17 +631,27 @@ async function refreshClassroomState(options = {}) {
   try {
     const previousCourseId = state.selectedCourseId;
     const previousStage = Number(state.classroom?.stageId || 0);
-    const previousUpdatedAt = state.classroom?.updatedAt || '';
+    const previousBlackboard = normalizeBlackboard(state.classroom?.blackboard);
     const preferred = await pickActiveCourse();
     if (preferred?.course?.id && preferred.course.id !== state.selectedCourseId) {
       state.selectedCourseId = preferred.course.id;
     }
     await loadSelectedCourseContext();
     const nextStage = Number(state.classroom?.stageId || 0);
-    const nextUpdatedAt = state.classroom?.updatedAt || '';
+    const nextBlackboard = normalizeBlackboard(state.classroom?.blackboard);
     const courseChanged = previousCourseId !== state.selectedCourseId;
-    if (options.forceRender || courseChanged || previousStage !== nextStage || previousUpdatedAt !== nextUpdatedAt) {
+    if (options.forceRender || courseChanged || previousStage !== nextStage) {
       await renderClassroom(state.student);
+    } else if (previousBlackboard !== nextBlackboard) {
+      // Blackboard edits must not re-render the question area and discard a
+      // student's in-progress choices. The preparation screen is the only
+      // exception because the blackboard is rendered inside that screen.
+      if (nextStage === 0) {
+        await renderClassroom(state.student);
+      } else {
+        updateTopBlackboard(nextBlackboard);
+        renderProgress();
+      }
     } else {
       renderProgress();
     }
@@ -921,7 +931,7 @@ function renderQuestion(question) {
         <span class="option-text">
           ${isOther ? `
             <span class="choice-other-label">${OTHER_OPTION_LABEL}：</span>
-            <input type="text" class="choice-other-input" data-question-id="${question.id}" data-option-index="${index}" placeholder="请填写其它内容">
+            <input type="text" class="choice-other-input" data-question-id="${question.id}" data-option-index="${index}" placeholder="请填写其它内容" disabled>
           ` : renderRichText(item)}
         </span>
       </label>
@@ -968,7 +978,10 @@ function renderAIChatQuestion(question) {
 function syncChoiceOptionState(scope = document) {
   scope.querySelectorAll('.option, .rating-option').forEach((option) => {
     const input = option.querySelector('input[type="radio"], input[type="checkbox"]');
-    option.classList.toggle('selected', !!input?.checked);
+    const selected = !!input?.checked;
+    option.classList.toggle('selected', selected);
+    const otherInput = option.querySelector('.choice-other-input');
+    if (otherInput) otherInput.disabled = !selected;
   });
 }
 
@@ -982,6 +995,9 @@ function setupChoiceOptions(scope = document) {
     input.addEventListener('change', () => {
       const syncScope = option.closest('.student-stage-block, .student-quiz-block, .question-item, .item, .rating-options') || document;
       syncChoiceOptionState(syncScope);
+      if (input.checked && option.dataset.otherOption === 'true') {
+        window.requestAnimationFrame(() => option.querySelector('.choice-other-input')?.focus());
+      }
     });
     option.addEventListener('pointerdown', (event) => {
       if (event.target.closest('.choice-other-input')) return;
@@ -1203,6 +1219,17 @@ function optionValue(text, index) {
   const scoreMatch = raw.match(/^(\d+)分/);
   if (scoreMatch) return scoreMatch[1];
   return String(index);
+}
+
+function questionLabelForValidation(question) {
+  const scoreRole = question.rules?.scoreRole || question.scoreRole || '';
+  if (scoreRole === 'prediction') return '分数预测';
+  return String(question.title || '当前题目')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\{\{red:([\s\S]*?)\}\}/g, '$1')
+    .replace(/\*\*([\s\S]*?)\*\*/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim() || '当前题目';
 }
 
 async function renderScoreCompare() {
@@ -1518,7 +1545,7 @@ function collectCurrentAnswers(questions = state.currentQuestions) {
       const annotationEnabled = editor?.dataset.annotationEnabled !== 'false';
       const html = sanitizeAnnotatedAnswer(editor?.innerHTML.trim() || '');
       const text = editor?.innerText.trim() || '';
-      if (!text) missing.push(question.title);
+      if (!text) missing.push(questionLabelForValidation(question));
       if (annotationEnabled && editor && countOpenTextHighlights(editor) === 0) {
         throw new Error('开放题至少需要标注一处颜色');
       }
@@ -1528,7 +1555,7 @@ function collectCurrentAnswers(questions = state.currentQuestions) {
     if (question.type === 'ai_chat') {
       const messages = getStoredAIChatMessages(question.id);
       const rounds = countAIRounds(messages);
-      if (rounds < 1) missing.push(question.title);
+      if (rounds < 1) missing.push(questionLabelForValidation(question));
       answers[key] = { messages, rounds };
       continue;
     }
@@ -1543,26 +1570,26 @@ function collectCurrentAnswers(questions = state.currentQuestions) {
         }
         return item.value;
       }).filter(Boolean);
-      if (!checked.length) missing.push(question.title);
-      if (blankOtherSelected) missing.push(`${question.title}（请填写其它内容）`);
+      if (!checked.length) missing.push(questionLabelForValidation(question));
+      if (blankOtherSelected) missing.push(`${questionLabelForValidation(question)}（请填写其它内容）`);
       answers[key] = checked;
       continue;
     }
     if (question.type === 'single_choice') {
       const checked = document.querySelector(`input[name="q_${question.id}"]:checked`);
-      if (!checked) missing.push(question.title);
+      if (!checked) missing.push(questionLabelForValidation(question));
       const option = checked?.closest('.option');
       answers[key] = option?.dataset.otherOption === 'true'
         ? otherAnswerValue(question.id, option.dataset.optionIndex || 0)
         : checked?.value || '';
       if (checked && option?.dataset.otherOption === 'true' && !answers[key]) {
-        missing.push(`${question.title}（请填写其它内容）`);
+        missing.push(`${questionLabelForValidation(question)}（请填写其它内容）`);
       }
       continue;
     }
     const textarea = document.querySelector(`textarea[name="q_${question.id}"]`);
     const value = textarea?.value.trim() || '';
-    if (!value) missing.push(question.title);
+    if (!value) missing.push(questionLabelForValidation(question));
     answers[key] = value;
   }
   if (missing.length) {
