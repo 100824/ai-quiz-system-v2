@@ -18,8 +18,9 @@ function resolveImageUrl(url) {
 
 function renderInlineRichText(value) {
   let html = escapeHtml(value);
-  html = html.replace(/\{\{red:([^{}\n]+)\}\}/g, '<span class="question-rich-red">$1</span>');
-  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  // Keep formatting active when a teacher inserts a line break inside it.
+  html = html.replace(/\{\{red:([^{}]+)\}\}/g, '<span class="question-rich-red">$1</span>');
+  html = html.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
   return html;
 }
 

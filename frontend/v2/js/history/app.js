@@ -1,7 +1,7 @@
 import { api, apiBase } from '../core/api.js';
 import { renderAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
-import { renderRichText } from '../core/rich-text.js?v=2026070101';
+import { renderRichText } from '../core/rich-text.js?v=2026071101';
 
 const $ = (id) => document.getElementById(id);
 

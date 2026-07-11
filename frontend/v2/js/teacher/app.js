@@ -2,7 +2,7 @@ import { api, apiBase } from '../core/api.js';
 import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { renderAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
-import { renderRichText } from '../core/rich-text.js?v=2026070101';
+import { renderRichText } from '../core/rich-text.js?v=2026071101';
 
 const legacyApiBase = () => `${window.location.protocol}//${window.location.hostname}:8080/api`;
 
@@ -402,8 +402,8 @@ function richTextToEditorHtml(value) {
     return token;
   });
   text = escapeHtml(text);
-  text = text.replace(/\{\{red:([^{}\n]+)\}\}/g, '<span class="question-rich-red">$1</span>');
-  text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/\{\{red:([^{}]+)\}\}/g, '<span class="question-rich-red">$1</span>');
+  text = text.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
   imageTokens.forEach((image) => {
     const html = `<img class="question-inline-image" src="${escapeHtml(resolveImageUrl(image.url))}" alt="${escapeHtml(image.alt)}" data-rich-image-url="${escapeHtml(image.url)}">`;
     text = text.replace(escapeHtml(image.token), html);
@@ -443,8 +443,9 @@ function richEditorToText(editor) {
   return Array.from(editor.childNodes)
     .map(editorNodeToRichText)
     .join('')
+    .replace(/\r\n?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
-    .replace(/\n$/g, '');
+    .replace(/\n+$/g, '');
 }
 
 function syncRichEditorToSource(editor) {
@@ -486,6 +487,25 @@ function insertTextIntoRichEditor(editor, text) {
   range.deleteContents();
   range.insertNode(document.createTextNode(text));
   range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  syncRichEditorToSource(editor);
+}
+
+function insertLineBreakIntoRichEditor(editor) {
+  editor.focus();
+  let range = selectedRangeInEditor(editor);
+  if (!range) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  range.deleteContents();
+  const lineBreak = document.createElement('br');
+  range.insertNode(lineBreak);
+  range.setStartAfter(lineBreak);
+  range.collapse(true);
   const selection = window.getSelection();
   selection.removeAllRanges();
   selection.addRange(range);
@@ -1633,6 +1653,11 @@ function bindForms() {
   $on('editQuestionType', 'change', updateQuestionTypeFields);
   document.querySelectorAll('.question-rich-editor').forEach((editor) => {
     editor.addEventListener('input', () => syncRichEditorToSource(editor));
+    editor.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.isComposing) return;
+      event.preventDefault();
+      insertLineBreakIntoRichEditor(editor);
+    });
     editor.addEventListener('paste', (event) => {
       event.preventDefault();
       const text = event.clipboardData?.getData('text/plain') || '';
