@@ -517,6 +517,11 @@ func (r *Repository) ListQuestions(sectionID int) ([]Question, error) {
 		item.Rules = json.RawMessage(rules)
 		item.Enabled = enabled == 1
 		item.Fixed = fixed == 1
+		// The prediction question is a reflection-mode contract. Older saves may
+		// have overwritten its rules, so restore its display metadata on read.
+		if item.QuestionKey == "fixed_prediction_score" {
+			normalizeFixedPredictionQuestion(&item)
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -623,6 +628,15 @@ func (r *Repository) UpdateQuestion(q Question) error {
 	if q.Type == "" {
 		q.Type = "open_text"
 	}
+	var questionKey string
+	if err := r.db.QueryRow(`SELECT question_key FROM questions WHERE id = ?`, q.ID).Scan(&questionKey); err != nil {
+		return err
+	}
+	// Teachers can customize the wording, but the reflection prediction card
+	// must always keep its six score choices and scoreRole metadata.
+	if questionKey == "fixed_prediction_score" {
+		normalizeFixedPredictionQuestion(&q)
+	}
 	q = normalizeOpenTextQuestion(q)
 	if len(q.Options) == 0 {
 		q.Options = json.RawMessage("[]")
@@ -647,6 +661,20 @@ func (r *Repository) UpdateQuestion(q Question) error {
 		WHERE id = ?
 	`, q.Type, strings.TrimSpace(q.Title), q.Description, string(q.Options), string(q.CorrectAnswer), q.Explanation, q.Score, string(q.Rules), q.ID)
 	return err
+}
+
+func normalizeFixedPredictionQuestion(q *Question) {
+	options, _ := json.Marshal([]string{
+		"0分 - 完全没把握",
+		"1分 - 有一点把握",
+		"2分 - 还需要努力",
+		"3分 - 基本可以",
+		"4分 - 比较有把握",
+		"5分 - 非常有把握",
+	})
+	q.Type = "single_choice"
+	q.Options = options
+	q.Rules = json.RawMessage(`{"scoreRole":"prediction"}`)
 }
 
 func (r *Repository) SubmitSection(courseID, classID, studentID, sectionID int, answers map[string]json.RawMessage) (map[string]interface{}, error) {
