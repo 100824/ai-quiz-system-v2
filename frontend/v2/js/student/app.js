@@ -981,7 +981,11 @@ function syncChoiceOptionState(scope = document) {
     const selected = !!input?.checked;
     option.classList.toggle('selected', selected);
     const otherInput = option.querySelector('.choice-other-input');
-    if (otherInput) otherInput.disabled = !selected;
+    if (otherInput) {
+      otherInput.disabled = !selected;
+      otherInput.hidden = !selected;
+      option.classList.toggle('option--other-active', selected);
+    }
   });
 }
 
@@ -1201,7 +1205,11 @@ function renderRichExplanationContent(content) {
 }
 
 function isOtherOption(value) {
-  const text = String(value ?? '').trim().replace(/\s+/g, '');
+  const text = String(value ?? '')
+    .replace(/<[^>]*>/g, '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[＿_]+/g, '_');
   // Support both the generated "其它：____" option and teachers' common
   // manual variants such as "其它" or "其他".
   return /^其[它他](?:[:：_]+)?$/.test(text) || /^其[它他][:：]/.test(text);

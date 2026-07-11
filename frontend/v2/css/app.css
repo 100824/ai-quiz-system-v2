@@ -2028,6 +2028,7 @@ body.student-page::after {
 .choice-other-input {
   flex: 1;
   min-width: 180px;
+  width: min(420px, 100%);
   height: 42px;
   padding: 8px 12px;
   border: 2px solid #c9dff3;
@@ -2044,12 +2045,12 @@ body.student-page::after {
   box-shadow: 0 0 0 3px rgba(82, 199, 138, 0.18);
 }
 
-/* Reveal the custom-answer field only after the student chooses "其它". */
-.student-stage-block .option--other .choice-other-input {
+.choice-other-input[hidden] {
   display: none;
 }
 
-.student-stage-block .option--other.selected .choice-other-input {
+.option--other.selected .choice-other-input,
+.option--other.option--other-active .choice-other-input {
   display: block;
 }
 
