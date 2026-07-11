@@ -1202,7 +1202,9 @@ function renderRichExplanationContent(content) {
 
 function isOtherOption(value) {
   const text = String(value ?? '').trim().replace(/\s+/g, '');
-  return /^其[它他][:：_]+$/.test(text) || /^其[它他][:：]/.test(text);
+  // Support both the generated "其它：____" option and teachers' common
+  // manual variants such as "其它" or "其他".
+  return /^其[它他](?:[:：_]+)?$/.test(text) || /^其[它他][:：]/.test(text);
 }
 
 function otherAnswerValue(questionId, optionIndex) {
