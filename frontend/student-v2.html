@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>人工智能学习平台</title>
+  <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
+  <link rel="stylesheet" href="./v2/css/app.css?v=2026071109">
+</head>
+<body class="student-page">
+  <div id="tipBlackboard" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(135deg, #5B9BD5 0%, #7BA7D9 55%, #A8C8EC 100%); color: white; z-index: 9999; box-shadow: 0 4px 20px rgba(59,130,246,0.3); border-bottom: 2px solid rgba(255,255,255,0.3);">
+    <div style="max-width: 1200px; margin: 0 auto; padding: 12px 20px;">
+      <div style="display: flex; align-items: flex-start; gap: 15px;">
+        <div style="font-size: 24px; flex-shrink: 0;">📋</div>
+        <div style="flex: 1;">
+          <div style="font-weight: 600; font-size: 16px; margin-bottom: 6px;">课堂提示</div>
+          <div id="tipContent" style="font-size: 18px; line-height: 1.8; user-select: text; min-height: 24px; word-wrap: break-word;" placeholder="暂无提示"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <h1>人工智能学习平台</h1>
+        <p>新版学生端，当前接口：<span id="apiBase"></span></p>
+      </div>
+      <nav class="nav-pills">
+        <a href="./teacher.html">教师端</a>
+        <a href="./student-history.html">我的历史</a>
+        <a href="./history/student.html">旧版归档</a>
+      </nav>
+    </header>
+
+    <section class="grid">
+      <div id="loginPage" class="panel span-4">
+        <h2>欢迎你！</h2>
+        <p class="meta">选择班级，输入姓名，进入今天的课堂。</p>
+        <div class="form-row">
+          <label>请选择你的班级</label>
+          <select id="classSelect"></select>
+          <label>请输入你的姓名</label>
+          <div id="studentNameCombobox" class="student-name-combobox">
+            <input id="studentNameInput" placeholder="请输入姓名" autocomplete="off">
+            <div id="studentNameList" class="custom-select__menu student-name-menu" role="listbox" aria-label="姓名匹配结果"></div>
+          </div>
+          <div class="student-login-actions">
+            <button id="enterBtn" type="button">开始答题</button>
+          </div>
+          <div id="loginMessage" class="login-message"></div>
+        </div>
+      </div>
+      <div id="surveyPage" class="student-survey-layout span-12 hidden">
+        <aside class="panel student-progress-card">
+          <div class="student-pill">答题进度</div>
+          <h2>我的课堂进度</h2>
+          <p id="studentProgressSummary" class="meta">正在等待课堂开始</p>
+          <div class="student-progress-summary">
+            <strong id="studentProgressCount">已完成 0 / 1</strong>
+          </div>
+          <div class="student-progress-meter">
+            <div id="studentProgressMeterFill"></div>
+          </div>
+          <div id="studentProgressList" class="student-progress-list"></div>
+        </aside>
+        <div id="classroom" class="student-survey-main">
+          <div class="panel">
+            <h2>准备环节</h2>
+            <p class="meta">选择班级和姓名后进入课堂。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./v2/js/student/app.js?v=2026071112"></script>
+</body>
+</html>
