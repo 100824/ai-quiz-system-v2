@@ -14,6 +14,17 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function questionTypeLabel(type) {
+  const map = {
+    single_choice: '单选题',
+    multiple_choice: '多选题',
+    fill_blank: '填空题',
+    open_text: '开放题',
+    ai_chat: 'AI 对话题'
+  };
+  return map[type] || type || '';
+}
+
 function intText(value, fallback) {
   return value === null || value === undefined ? fallback : String(value);
 }
@@ -212,7 +223,7 @@ function renderDetailQuestion(question, index) {
 
   return `
     <div class="history-question-card ${question.isCorrect ? 'history-question-card--cool' : 'history-question-card--warm'}">
-      <p class="history-question-card__title">第 ${index + 1} 题 · ${escapeHtml(question.questionType || '')}</p>
+      <p class="history-question-card__title">第 ${index + 1} 题 · ${questionTypeLabel(question.questionType)}</p>
       <p class="history-question-card__text">${renderRichText(question.questionText || '')}</p>
       <div class="history-answer-grid">
         <div class="history-answer-row">

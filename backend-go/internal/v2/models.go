@@ -263,4 +263,5 @@ type StudentDetailQuestion struct {
 	Score         int             `json:"score"`
 	IsCorrect     bool            `json:"isCorrect"`
 	ChatMessages  []AIChatMessage `json:"chatMessages,omitempty"`
+	Rules         json.RawMessage `json:"rules,omitempty"`
 }

@@ -346,6 +346,112 @@ func (r *Repository) DeleteCourse(id int) error {
 	return err
 }
 
+func (r *Repository) CloneCourse(originalID int, newTitle string) (int, error) {
+	newTitle = strings.TrimSpace(newTitle)
+	if newTitle == "" {
+		return 0, errors.New("课程名称不能为空")
+	}
+
+	// Check uniqueness
+	var exists int
+	if err := r.db.QueryRow(`SELECT COUNT(1) FROM courses WHERE title = ? AND deleted_at IS NULL`, newTitle).Scan(&exists); err != nil {
+		return 0, err
+	}
+	if exists > 0 {
+		return 0, errors.New("课堂名称已存在，请换一个名称")
+	}
+
+	// Fetch original course
+	var orig Course
+	err := r.db.QueryRow(`SELECT id, COALESCE(template_id,0), template_code, title, mode, description, status, created_at, updated_at
+		FROM courses WHERE id = ? AND deleted_at IS NULL`, originalID).Scan(
+		&orig.ID, &orig.TemplateID, &orig.TemplateCode, &orig.Title, &orig.Mode, &orig.Description, &orig.Status, &orig.CreatedAt, &orig.UpdatedAt)
+	if err != nil {
+		return 0, fmt.Errorf("原课程不存在: %w", err)
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// Create new course
+	res, err := tx.Exec(`INSERT INTO courses (template_id, template_code, title, mode, description, status)
+		VALUES (?, ?, ?, ?, ?, 'active')`, orig.TemplateID, orig.TemplateCode, newTitle, orig.Mode, orig.Description)
+	if err != nil {
+		return 0, err
+	}
+	newID64, _ := res.LastInsertId()
+	newID := int(newID64)
+
+	// Copy sections
+	sectionRows, err := tx.Query(`SELECT id, section_key, title, type, sort_order, enabled, fixed, rules_json
+		FROM course_sections WHERE course_id = ? ORDER BY sort_order`, originalID)
+	if err != nil {
+		return 0, err
+	}
+	defer sectionRows.Close()
+
+	type sectionMapping struct {
+		oldID int
+		newID int
+	}
+	var sectionMap []sectionMapping
+
+	for sectionRows.Next() {
+		var oldSectID, sortOrder, enabled, fixed int
+		var key, title, typ, rulesRaw string
+		if err := sectionRows.Scan(&oldSectID, &key, &title, &typ, &sortOrder, &enabled, &fixed, &rulesRaw); err != nil {
+			return 0, err
+		}
+		res, err := tx.Exec(`INSERT INTO course_sections (course_id, section_key, title, type, sort_order, enabled, fixed, rules_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, newID, key, title, typ, sortOrder, enabled, fixed, rulesRaw)
+		if err != nil {
+			return 0, err
+		}
+		newSectID64, _ := res.LastInsertId()
+		sectionMap = append(sectionMap, sectionMapping{oldID: oldSectID, newID: int(newSectID64)})
+	}
+	if err := sectionRows.Err(); err != nil {
+		return 0, err
+	}
+
+	// Copy questions for each section
+	for _, sm := range sectionMap {
+		qRows, err := tx.Query(`SELECT question_key, type, title, description, options_json, correct_answer_json,
+			explanation, score, sort_order, enabled, fixed, rules_json
+			FROM questions WHERE section_id = ? ORDER BY sort_order`, sm.oldID)
+		if err != nil {
+			return 0, err
+		}
+		for qRows.Next() {
+			var key, qType, qTitle, qDesc, qOptions, qCorrect, qExplanation, qRules string
+			var qScore, qSort, qEnabled, qFixed int
+			if err := qRows.Scan(&key, &qType, &qTitle, &qDesc, &qOptions, &qCorrect, &qExplanation, &qScore, &qSort, &qEnabled, &qFixed, &qRules); err != nil {
+				qRows.Close()
+				return 0, err
+			}
+			if _, err := tx.Exec(`INSERT INTO questions (course_id, section_id, question_key, type, title, description, options_json,
+				correct_answer_json, explanation, score, sort_order, enabled, fixed, rules_json)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newID, sm.newID, key, qType, qTitle, qDesc, qOptions, qCorrect, qExplanation, qScore, qSort, qEnabled, qFixed, qRules); err != nil {
+				qRows.Close()
+				return 0, err
+			}
+		}
+		qRows.Close()
+		if err := qRows.Err(); err != nil {
+			return 0, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return newID, nil
+}
+
 func (r *Repository) BindCourseClass(courseID, classID int) error {
 	if courseID <= 0 || classID <= 0 {
 		return errors.New("课程和班级不能为空")
@@ -1789,7 +1895,8 @@ func (r *Repository) GetStudentDetail(submissionID int) (StudentDetail, error) {
 
 	answerRows, err := r.db.Query(`
 		SELECT ar.attempt_id, q.id, q.title, q.type, q.sort_order,
-		       ar.answer_json, q.correct_answer_json, q.explanation, q.score, ar.is_correct
+		       ar.answer_json, q.correct_answer_json, q.explanation, q.score, ar.is_correct,
+		       q.rules_json
 		FROM answer_records ar
 		JOIN questions q ON q.id = ar.question_id
 		JOIN answer_attempts aa ON aa.id = ar.attempt_id
@@ -1802,9 +1909,9 @@ func (r *Repository) GetStudentDetail(submissionID int) (StudentDetail, error) {
 	defer answerRows.Close()
 	for answerRows.Next() {
 		var attemptID, questionID, questionSort, questionScore int
-		var questionTitle, questionType, answerRaw, correctRaw, explanation string
+		var questionTitle, questionType, answerRaw, correctRaw, explanation, questionRulesRaw string
 		var isCorrect int
-		if err := answerRows.Scan(&attemptID, &questionID, &questionTitle, &questionType, &questionSort, &answerRaw, &correctRaw, &explanation, &questionScore, &isCorrect); err != nil {
+		if err := answerRows.Scan(&attemptID, &questionID, &questionTitle, &questionType, &questionSort, &answerRaw, &correctRaw, &explanation, &questionScore, &isCorrect, &questionRulesRaw); err != nil {
 			return item, err
 		}
 		target := attemptByID[attemptID]
@@ -1839,6 +1946,7 @@ func (r *Repository) GetStudentDetail(submissionID int) (StudentDetail, error) {
 				}
 				return aiChatMessagesFromRaw(answerJSON)
 			}(),
+			Rules: json.RawMessage(questionRulesRaw),
 		})
 	}
 	if err := answerRows.Err(); err != nil {

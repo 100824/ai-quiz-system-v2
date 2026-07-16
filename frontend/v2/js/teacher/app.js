@@ -273,6 +273,7 @@ async function loadQuestions() {
       </div>
       <div class="meta">${questionTypeLabel(item.type)} · ${item.score || 0} 分</div>
       ${item.type === 'open_text' ? '<div class="meta"><span class="badge">至少标注一处颜色</span></div>' : ''}
+      ${item.rules?.showFor?.length ? `<div class="meta"><span class="badge">显示给：${item.rules.showFor.join('、')}</span></div>` : ''}
       ${renderQuestionOptionsPreview(item)}
       ${item.explanation ? `<div class="meta">解析：${escapeHtml(item.explanation)}</div>` : ''}
       <div class="question-actions">
@@ -1304,6 +1305,54 @@ function closeDeleteCourseModal() {
   $('deleteCourseModal').classList.add('hidden');
 }
 
+function openCloneCourseModal() {
+  // Populate course select
+  const options = state.courses.map((c) => `<option value="${c.id}">${escapeHtml(c.title)}</option>`).join('');
+  $('cloneCourseSelect').innerHTML = options;
+  // Pre-fill title with "——副本" suffix
+  updateCloneCourseTitle();
+  $('cloneCourseModal').classList.remove('hidden');
+}
+
+function closeCloneCourseModal() {
+  $('cloneCourseModal').classList.add('hidden');
+}
+
+function updateCloneCourseTitle() {
+  const select = $('cloneCourseSelect');
+  if (!select || !select.value) {
+    $('cloneCourseTitle').value = '';
+    return;
+  }
+  const course = state.courses.find((c) => c.id === Number(select.value));
+  $('cloneCourseTitle').value = course ? `${course.title}——副本` : '';
+}
+
+async function submitCloneCourse() {
+  const courseID = Number($('cloneCourseSelect').value);
+  const title = $('cloneCourseTitle').value.trim();
+  if (!courseID) { alert('请选择要复制的课堂'); return; }
+  if (!title) { alert('请输入新课堂名称'); return; }
+
+  const btn = $('confirmCloneCourseBtn');
+  btn.disabled = true;
+  btn.textContent = '复制中...';
+  try {
+    const data = await api(`/courses/${courseID}/clone`, {
+      method: 'POST',
+      body: JSON.stringify({ title })
+    });
+    alert(`复制成功！新课堂ID：${data.id}`);
+    closeCloneCourseModal();
+    await loadAll();
+  } catch (error) {
+    alert(`复制失败：${error.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '确认复制';
+  }
+}
+
 async function submitDeleteCourses() {
   const ids = Array.from(document.querySelectorAll('#deleteCourseList input[type="checkbox"]:checked'))
     .map((input) => Number(input.value))
@@ -1394,6 +1443,11 @@ function resetQuestionModal() {
   $('editCorrectAnswer').value = '';
   $('editQuestionScore').value = '0';
   $('editQuestionExplanation').value = '';
+  // Reset showFor checkboxes
+  if ($('showForGuessCorrect')) $('showForGuessCorrect').checked = false;
+  if ($('showForGuessHigh')) $('showForGuessHigh').checked = false;
+  if ($('showForGuessLow')) $('showForGuessLow').checked = false;
+  if ($('editAIChatPresets')) $('editAIChatPresets').value = '';
   $('editOptionsList').innerHTML = '';
   addQuestionOption();
   addQuestionOption();
@@ -1422,6 +1476,16 @@ function openQuestionModal(question = null) {
       $('editCorrectAnswer').value = question.correctAnswer.join('，');
     } else if (question.correctAnswer !== null && question.correctAnswer !== undefined) {
       $('editCorrectAnswer').value = String(question.correctAnswer);
+    }
+    // Restore showFor checkboxes from question rules
+    const showFor = question?.rules?.showFor || [];
+    if ($('showForGuessCorrect')) $('showForGuessCorrect').checked = showFor.includes('猜中');
+    if ($('showForGuessHigh')) $('showForGuessHigh').checked = showFor.includes('猜高');
+    if ($('showForGuessLow')) $('showForGuessLow').checked = showFor.includes('猜低');
+    // Restore AI chat preset questions
+    const presets = question?.rules?.presetQuestions || [];
+    if ($('editAIChatPresets') && Array.isArray(presets)) {
+      $('editAIChatPresets').value = presets.join('\n');
     }
   } else {
     $('questionModalTitle').textContent = '新增题目';
@@ -1472,6 +1536,16 @@ function updateQuestionTypeFields() {
   $('editOptionsGroup').style.display = showChoice ? 'block' : 'none';
   $('editCorrectAnswerGroup').style.display = (type === 'ai_chat' || type === 'open_text') ? 'none' : 'block';
   $('editOpenTextRulesGroup').classList.toggle('hidden', type !== 'open_text');
+  // Show showFor group only for reflection section questions
+  const section = getSelectedSection();
+  const isReflectionSection = getSelectedCourseMode() === 'reflection' && section?.type === 'reflection';
+  if ($('editShowForGroup')) {
+    $('editShowForGroup').classList.toggle('hidden', !isReflectionSection);
+  }
+  // Show AI chat presets only for ai_chat type
+  if ($('editAIChatPresetsGroup')) {
+    $('editAIChatPresetsGroup').classList.toggle('hidden', type !== 'ai_chat');
+  }
 }
 
 async function saveQuestionFromModal() {
@@ -1504,6 +1578,32 @@ async function saveQuestionFromModal() {
     }
   }
 
+  // Build rules: preserve annotation settings for open_text, add showFor for reflection
+  let rules = {};
+  if (type === 'open_text') {
+    rules = { annotationEnabled: true, annotationRequired: true };
+  }
+  // Add showFor for reflection section questions
+  const section = getSelectedSection();
+  const isReflectionSection = getSelectedCourseMode() === 'reflection' && section?.type === 'reflection';
+  if (isReflectionSection) {
+    const showFor = [];
+    if ($('showForGuessCorrect')?.checked) showFor.push('猜中');
+    if ($('showForGuessHigh')?.checked) showFor.push('猜高');
+    if ($('showForGuessLow')?.checked) showFor.push('猜低');
+    if (showFor.length > 0) {
+      rules.showFor = showFor;
+    }
+  }
+  // Add AI chat preset questions
+  if (type === 'ai_chat') {
+    const presetsRaw = $('editAIChatPresets')?.value || '';
+    const presets = presetsRaw.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 10);
+    if (presets.length > 0) {
+      rules.presetQuestions = presets;
+    }
+  }
+
   const payload = {
     type,
     title,
@@ -1512,7 +1612,7 @@ async function saveQuestionFromModal() {
     correctAnswer: normalizeCorrectAnswer($('editCorrectAnswer').value, type),
     explanation: $('editQuestionExplanation').value,
     score: Number($('editQuestionScore').value || 0),
-    rules: type === 'open_text' ? { annotationEnabled: true, annotationRequired: true } : {}
+    rules
   };
 
   savingQuestionInFlight = true;
@@ -1620,6 +1720,14 @@ function bindForms() {
     if (!input) return;
     input.closest('.delete-course-option')?.classList.toggle('is-selected', input.checked);
   });
+  // Clone course
+  $on('cloneCourseBtn', 'click', openCloneCourseModal);
+  $on('cancelCloneCourseBtn', 'click', closeCloneCourseModal);
+  $on('confirmCloneCourseBtn', 'click', submitCloneCourse);
+  $on('cloneCourseSelect', 'change', updateCloneCourseTitle);
+  $on('cloneCourseModal', 'click', (event) => {
+    if (event.target === $('cloneCourseModal')) closeCloneCourseModal();
+  });
 
   $on('sectionForm', 'submit', async (event) => {
     event.preventDefault();
@@ -1724,6 +1832,7 @@ function bindForms() {
     createClassModal: closeCreateClassModal,
     createCourseModal: closeCreateCourseModal,
     deleteCourseModal: closeDeleteCourseModal,
+    cloneCourseModal: closeCloneCourseModal,
     addStudentModal: closeAddStudentModal,
     questionModal: closeQuestionModal,
     studentDetailModal: closeStudentDetailModal,

@@ -809,6 +809,55 @@
   background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
 }
 
+.ai-chat-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.ai-chat-preset-btn {
+  padding: 6px 14px;
+  border: 2px solid #c9dff3;
+  border-radius: 20px;
+  background: #f5faff;
+  color: #2f5d96;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ai-chat-preset-btn:hover {
+  border-color: #5B9BD5;
+  background: #e8f3ff;
+}
+
+.ai-chat-copy-wrap {
+  text-align: right;
+  margin-top: 2px;
+}
+
+.ai-chat-copy-btn {
+  padding: 3px 12px;
+  border: 1px solid #c9dff3;
+  border-radius: 8px;
+  background: #f5faff;
+  color: #2f5d96;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transform: none !important;
+  box-shadow: none;
+  transition: none;
+}
+.ai-chat-copy-btn:hover {
+  background: #e8f3ff;
+  border-color: #5B9BD5;
+  transform: none !important;
+}
+
+
+
 .student-detail-section {
   margin-bottom: 18px;
   padding: 18px;
@@ -2023,6 +2072,12 @@ body.student-page::after {
   flex: 0 0 auto;
   font-weight: 800;
   color: #2f5d96;
+}
+
+.student-stage-block .option .choice-other-input {
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .choice-other-input {

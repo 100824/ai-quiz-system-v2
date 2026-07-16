@@ -39,6 +39,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/courses", h.HandleListCourses)
 	mux.HandleFunc("POST /api/v2/courses", h.HandleCreateCourse)
 	mux.HandleFunc("DELETE /api/v2/courses/{id}", h.HandleDeleteCourse)
+	mux.HandleFunc("POST /api/v2/courses/{id}/clone", h.HandleCloneCourse)
 	mux.HandleFunc("POST /api/v2/courses/{id}/classes", h.HandleBindCourseClass)
 	mux.HandleFunc("GET /api/v2/courses/{id}/sections", h.HandleListSections)
 	mux.HandleFunc("POST /api/v2/courses/{id}/sections", h.HandleCreateSection)
@@ -272,6 +273,27 @@ func (h *Handler) HandleDeleteCourse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, APIResponse{Success: true})
+}
+
+func (h *Handler) HandleCloneCourse(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt(r, "id")
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "课程ID无效"})
+		return
+	}
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "请求格式错误"})
+		return
+	}
+	newID, err := h.repo.CloneCourse(id, body.Title)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]int{"id": newID}})
 }
 
 func (h *Handler) HandleBindCourseClass(w http.ResponseWriter, r *http.Request) {
@@ -941,7 +963,7 @@ func (h *Handler) writeAllStatsWorkbook(wb *excelize.File, stats StatsSummary) e
 		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "评分备注", "最后提交时间",
 	}}
 	questionRows := [][]string{{
-		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "提交时间",
+		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "显示给", "提交时间",
 	}}
 	chatRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "题目", "提交次数", "轮次", "角色", "内容", "提交时间",
@@ -978,7 +1000,7 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "评分备注", "最后提交时间",
 	}}
 	questionRows := [][]string{{
-		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "提交时间",
+		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "显示给", "提交时间",
 	}}
 	chatRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "题目", "提交次数", "轮次", "角色", "内容", "提交时间",
@@ -1080,6 +1102,7 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 						boolText(question.IsCorrect),
 						strconv.Itoa(question.Score),
 						question.Explanation,
+						showForLabel(question.Rules),
 						attempt.SubmittedAt,
 					})
 
@@ -1252,6 +1275,31 @@ func (h *Handler) writeCSV(w http.ResponseWriter, filename string, rows [][]stri
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(builder.String()))
+}
+
+func showForLabel(rulesRaw json.RawMessage) string {
+	if len(rulesRaw) == 0 {
+		return "全部"
+	}
+	var rules map[string]interface{}
+	if err := json.Unmarshal(rulesRaw, &rules); err != nil {
+		return "全部"
+	}
+	showFor, ok := rules["showFor"]
+	if !ok {
+		return "全部"
+	}
+	arr, ok := showFor.([]interface{})
+	if !ok || len(arr) == 0 {
+		return "全部"
+	}
+	parts := make([]string, len(arr))
+	for i, v := range arr {
+		if s, ok := v.(string); ok {
+			parts[i] = s
+		}
+	}
+	return strings.Join(parts, "、")
 }
 
 func intPtrText(value *int, fallback string) string {

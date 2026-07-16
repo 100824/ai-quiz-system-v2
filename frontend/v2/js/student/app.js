@@ -23,7 +23,8 @@ const state = {
   aiChatPending: new Map(),
   retryingQuizSectionId: null,
   pollTimer: null,
-  completedSectionIds: new Set()
+  completedSectionIds: new Set(),
+  guessResultText: '-'
 };
 
 const $ = (id) => document.getElementById(id);
@@ -198,6 +199,7 @@ function renderAIChatMessages(messages = [], pending = false) {
     <div class="ai-chat-message ai-chat-message--${item.role === 'user' ? 'user' : 'assistant'}">
       <div class="ai-chat-message__role">${item.role === 'user' ? '我' : 'AI 学习助手'}</div>
       <div class="ai-chat-message__content">${renderMarkdown(item.content)}</div>
+      ${item.role === 'assistant' ? `<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" onclick="copyAIChatMessage(this)" title="复制回复内容">📋 复制</button></div>` : ''}
     </div>
   `).join('');
   return pending ? rendered + renderAIChatThinking() : rendered;
@@ -331,7 +333,6 @@ function renderRetryableQuizSection(section, index) {
         <span class="student-quiz-tag">可再次作答</span>
         <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
       </div>
-      <div id="scoreCompare" class="student-complete-score-compare"></div>
       <div class="item">
         <strong>再答一次说明</strong>
         <div>你可以再次完成小测来复习巩固；系统只记录第一次提交的小测分数。</div>
@@ -705,8 +706,20 @@ async function renderClassroom(student) {
       return renderCompletedSection(section, index);
     }
     if (index === activeIndex) {
+      // For reflection sections, fetch score summary first for filtering
+      if (section.type === 'reflection') {
+        try {
+          const scoreData = await api(`/student/score-summary?courseId=${state.selectedCourseId}&classId=${state.selectedClassId}&studentId=${state.student.id}`);
+          state.guessResultText = scoreData.summary?.guessResultText || '-';
+        } catch (e) {
+          state.guessResultText = '-';
+        }
+      }
       const data = await api(`/sections/${section.id}/questions`);
-      const questions = (data.questions || []).filter((item) => item.enabled);
+      let questions = (data.questions || []).filter((item) => item.enabled);
+      if (section.type === 'reflection') {
+        questions = filterReflectionQuestions(questions);
+      }
       state.currentQuestions = questions;
       const questionHtml = questions.length ? questions.map(renderQuestion).join('') : '<div class="empty">当前部分还没有题目。</div>';
       return `
@@ -715,7 +728,9 @@ async function renderClassroom(student) {
             <span class="student-quiz-tag">${safeHtml(sectionTag(section, index))}</span>
             <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
           </div>
-          <div id="scoreCompare"></div>
+          ${section.type === 'reflection'
+            ? '<div id="reflectionScoreCompare"></div>'
+            : '<div id="scoreCompare"></div>'}
           <div id="questions" class="list">${questionHtml}</div>
           <div id="sectionSubmitWrap"></div>
         </section>
@@ -798,7 +813,6 @@ async function renderClassroom(student) {
     }
   } else if (activeSection.type === 'reflection') {
     $('sectionSubmitWrap').innerHTML = `
-      <div id="reflectionScoreCompare"></div>
       <button type="button" id="submitSectionBtn">完成反思</button>
       <div id="sectionSubmitResult" class="section-submit-result"></div>
     `;
@@ -816,9 +830,11 @@ async function renderClassroom(student) {
     `;
   }
   $('submitSectionBtn')?.addEventListener('click', submitCurrentSection);
-  $('startQuizRetryBtn')?.addEventListener('click', () => {
-    if (activeSection) startQuizRetake(activeSection.id);
-  });
+  if (activeSection?.type === 'quiz') {
+    $('startQuizRetryBtn')?.addEventListener('click', () => {
+      if (activeSection) startQuizRetake(activeSection.id);
+    });
+  }
   setupChoiceOptions();
   setupAIChatQuestions();
   setupOpenTextEditors();
@@ -958,6 +974,12 @@ function renderAIChatQuestion(question) {
   const reachedLimit = rounds >= 5;
   const pending = state.aiChatPending.get(aiChatKey(question.id)) === true;
   setStoredAIChatMessages(question.id, messages);
+  const presets = Array.isArray(question.rules?.presetQuestions) ? question.rules.presetQuestions : [];
+  const presetHtml = presets.length && !reachedLimit ? `
+    <div class="ai-chat-presets">
+      ${presets.map((p, i) => `<button type="button" class="ai-chat-preset-btn" data-question-id="${question.id}" data-preset-index="${i}">${safeHtml(p)}</button>`).join('')}
+    </div>
+  ` : '';
   return `
     <div class="item ai-chat-question" data-question-id="${question.id}">
       <div class="item-title student-question-title">${renderRichText(normalizeAIChatTitle(question.title))}</div>
@@ -965,8 +987,9 @@ function renderAIChatQuestion(question) {
       <div class="meta">AI 对话题 · 已对话 <span id="ai-chat-rounds-${question.id}">${rounds}</span> / 5 轮</div>
       <div class="ai-chat-box">
         <div id="ai-chat-messages-${question.id}" class="ai-chat-messages">${renderAIChatMessages(messages, pending)}</div>
+        ${presetHtml}
         <div class="ai-chat-input-row">
-          <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="请输入学习相关的问题，例如：人工智能为什么能理解文字？" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
+          <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="请输入学习相关的问题，也可以点击上方预设问题" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
           <button type="button" class="ai-chat-send-btn" data-question-id="${question.id}" ${reachedLimit ? 'disabled' : ''}>${reachedLimit ? '已达上限' : '发送'}</button>
         </div>
         <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? '已达到 5 轮上限，可以提交本部分。' : AI_CHAT_GUIDE_TEXT}</div>
@@ -1002,10 +1025,6 @@ function setupChoiceOptions(scope = document) {
       if (input.checked && option.dataset.otherOption === 'true') {
         window.requestAnimationFrame(() => option.querySelector('.choice-other-input')?.focus());
       }
-    });
-    option.addEventListener('pointerdown', (event) => {
-      if (event.target.closest('.choice-other-input')) return;
-      event.preventDefault();
     });
     option.addEventListener('click', (event) => {
       if (event.target.closest('.choice-other-input')) {
@@ -1076,13 +1095,73 @@ function setupAIChatQuestions() {
     if (input.dataset.bound === 'true') return;
     input.dataset.bound = 'true';
     input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         const questionId = Number(input.id.replace('ai-chat-input-', '') || 0);
         sendAIChatMessage(questionId);
       }
     });
   });
+  // Preset question buttons: fill input on click
+  document.querySelectorAll('.ai-chat-preset-btn').forEach((btn) => {
+    if (btn.dataset.presetBound === 'true') return;
+    btn.dataset.presetBound = 'true';
+    btn.addEventListener('click', () => {
+      const qid = Number(btn.dataset.questionId || 0);
+      const input = $(`ai-chat-input-${qid}`);
+      if (input && !input.disabled) {
+        input.value = btn.textContent.trim();
+        input.focus();
+      }
+    });
+  });
+  // Copy buttons on AI replies
+  document.querySelectorAll('.ai-chat-copy-btn').forEach((btn) => {
+    // Handled via onclick="copyAIChatMessage(this)" — no need to bind here
+  });
+}
+
+// Global copy handler called via onclick in renderAIChatMessages
+window.copyAIChatMessage = function(btn) {
+  const msgEl = btn.closest('.ai-chat-message--assistant');
+  const contentEl = msgEl?.querySelector('.ai-chat-message__content');
+  const text = contentEl?.textContent?.trim() || '';
+  navigator.clipboard.writeText(text).then(() => {
+    showCopyToast(msgEl);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showCopyToast(msgEl);
+  });
+};
+
+function showCopyToast(msgEl) {
+  if (!msgEl) return;
+  // Find the chat box container to show toast within it
+  const chatBox = msgEl.closest('.ai-chat-box');
+  let toast = chatBox?.querySelector('.ai-chat-copy-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'ai-chat-copy-toast';
+    toast.textContent = '已复制到剪贴板';
+    toast.style.cssText = 'text-align:center;padding:8px 16px;margin-bottom:8px;background:#e8f5e9;color:#2e7d32;border-radius:10px;font-size:14px;font-weight:600;opacity:0;transition:opacity 0.3s;';
+    if (chatBox) {
+      const messagesEl = chatBox.querySelector('.ai-chat-messages');
+      messagesEl?.parentNode?.insertBefore(toast, messagesEl);
+    }
+  }
+  // Show then fade
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => { toast.remove(); }, 400);
+  }, 1500);
 }
 
 async function sendAIChatMessage(questionId) {
@@ -1215,6 +1294,22 @@ function isOtherOption(value) {
   return /^其[它他](?:[:：_]+)?$/.test(text) || /^其[它他][:：]/.test(text);
 }
 
+function filterReflectionQuestions(questions) {
+  const guess = state.guessResultText || '-';
+  // If score not yet available, show all questions to avoid empty page
+  if (guess === '-' || guess === 'unknown') {
+    return questions;
+  }
+  return questions.filter((q) => {
+    const showFor = q.rules?.showFor;
+    // No filter set → show for everyone (backward compatible)
+    if (!showFor || !Array.isArray(showFor) || showFor.length === 0) {
+      return true;
+    }
+    return showFor.includes(guess);
+  });
+}
+
 function otherAnswerValue(questionId, optionIndex) {
   const input = document.querySelector(`.choice-other-input[data-question-id="${questionId}"][data-option-index="${optionIndex}"]`);
   const text = input?.value.trim() || '';
@@ -1246,8 +1341,9 @@ async function renderScoreCompare() {
   if (!$('scoreCompare') && !$('reflectionScoreCompare')) return;
   const data = await api(`/student/score-summary?courseId=${state.selectedCourseId}&classId=${state.selectedClassId}&studentId=${state.student.id}`);
   const summary = data.summary || {};
-  const target = $('scoreCompare') || $('reflectionScoreCompare');
+  const target = $('reflectionScoreCompare') || $('scoreCompare');
   const guessResultText = summary.guessResultText || '-';
+  state.guessResultText = guessResultText;
   const feedbackMap = {
     猜中: '你猜得很准，说明你很了解自己！',
     猜高: '你猜高了，可能有些地方没听懂哦。',
