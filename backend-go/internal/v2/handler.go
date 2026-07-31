@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ai-quiz-system-v2/backend-go/internal/utils"
@@ -17,7 +18,8 @@ import (
 )
 
 type Handler struct {
-	repo *Repository
+	repo          *Repository
+	guidanceLocks sync.Map
 }
 
 func NewHandler(repo *Repository) *Handler {
@@ -38,11 +40,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/course-templates", h.HandleListTemplates)
 	mux.HandleFunc("GET /api/v2/courses", h.HandleListCourses)
 	mux.HandleFunc("POST /api/v2/courses", h.HandleCreateCourse)
+	mux.HandleFunc("PUT /api/v2/courses/{id}", h.HandleUpdateCourse)
 	mux.HandleFunc("DELETE /api/v2/courses/{id}", h.HandleDeleteCourse)
 	mux.HandleFunc("POST /api/v2/courses/{id}/clone", h.HandleCloneCourse)
 	mux.HandleFunc("POST /api/v2/courses/{id}/classes", h.HandleBindCourseClass)
 	mux.HandleFunc("GET /api/v2/courses/{id}/sections", h.HandleListSections)
 	mux.HandleFunc("POST /api/v2/courses/{id}/sections", h.HandleCreateSection)
+	mux.HandleFunc("GET /api/v2/sections/{id}/ai-guidance", h.HandleGetSectionAIGuidance)
+	mux.HandleFunc("PUT /api/v2/sections/{id}/ai-guidance", h.HandleSetSectionAIGuidance)
 	mux.HandleFunc("GET /api/v2/sections/{id}/questions", h.HandleListQuestions)
 	mux.HandleFunc("POST /api/v2/sections/{id}/questions", h.HandleCreateQuestion)
 	mux.HandleFunc("PUT /api/v2/questions/{id}", h.HandleUpdateQuestion)
@@ -51,6 +56,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/classrooms/{courseId}/{classId}/stage", h.HandleSetStage)
 	mux.HandleFunc("POST /api/v2/classrooms/{courseId}/{classId}/blackboard", h.HandleSetBlackboard)
 	mux.HandleFunc("POST /api/v2/student/ai-chat", h.HandleStudentAIChat)
+	mux.HandleFunc("GET /api/v2/student/ai-guidance", h.HandleGetStudentAIGuidance)
+	mux.HandleFunc("POST /api/v2/student/ai-guidance/generate", h.HandleGenerateStudentAIGuidance)
+	mux.HandleFunc("POST /api/v2/student/ai-guidance/messages", h.HandleStudentAIGuidanceMessage)
+	mux.HandleFunc("POST /api/v2/student/ai-guidance/complete", h.HandleCompleteStudentAIGuidance)
 	mux.HandleFunc("POST /api/v2/student/submit-section", h.HandleSubmitSection)
 	mux.HandleFunc("GET /api/v2/student/score-summary", h.HandleScoreSummary)
 	mux.HandleFunc("GET /api/v2/stats", h.HandleStats)
@@ -246,20 +255,42 @@ func (h *Handler) HandleListCourses(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleCreateCourse(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title        string `json:"title"`
-		Description  string `json:"description"`
-		TemplateCode string `json:"templateCode"`
+		Title             string `json:"title"`
+		Description       string `json:"description"`
+		LearningObjective string `json:"learningObjective"`
+		TemplateCode      string `json:"templateCode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
 		return
 	}
-	id, err := h.repo.CreateCourse(body.Title, body.Description, body.TemplateCode)
+	id, err := h.repo.CreateCourse(body.Title, body.Description, body.LearningObjective, body.TemplateCode)
 	if err != nil {
 		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
 		return
 	}
 	h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]int{"id": id}})
+}
+
+func (h *Handler) HandleUpdateCourse(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt(r, "id")
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "课堂ID无效"})
+		return
+	}
+	var body struct {
+		Description       string `json:"description"`
+		LearningObjective string `json:"learningObjective"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+	if err := h.repo.UpdateCourse(id, body.Description, body.LearningObjective); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+	h.writeJSON(w, http.StatusOK, APIResponse{Success: true})
 }
 
 func (h *Handler) HandleDeleteCourse(w http.ResponseWriter, r *http.Request) {
@@ -529,6 +560,17 @@ func (h *Handler) HandleStudentAIChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) callDeepSeek(ctx context.Context, history []AIChatMessage) (string, error) {
+	return h.callDeepSeekWithSystem(ctx, strings.Join([]string{
+		"你是小学五年级人工智能课堂里的学习助手。",
+		"只回答学习相关问题，包括人工智能、课堂知识、学习方法、作业思路和学科知识。",
+		"如果学生询问与学习无关、娱乐八卦、违法危险、隐私攻击等内容，请礼貌拒绝，并引导回学习问题。",
+		"每次回复必须控制在1000个中文字符以内。",
+		"解释要符合小学五年级学生理解水平：用短句、例子和鼓励性的语气，不要堆砌术语。",
+		"不要直接代写完整作业答案，可以给思路、步骤、提示和检查方法。",
+	}, "\n"), history)
+}
+
+func (h *Handler) callDeepSeekWithSystem(ctx context.Context, systemPrompt string, history []AIChatMessage) (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_KEY"))
 	if apiKey == "" {
 		apiKey = strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
@@ -536,17 +578,7 @@ func (h *Handler) callDeepSeek(ctx context.Context, history []AIChatMessage) (st
 	if apiKey == "" {
 		return "", fmt.Errorf("未配置 DEEPSEEK_KEY 环境变量")
 	}
-	messages := []AIChatMessage{{
-		Role: "system",
-		Content: strings.Join([]string{
-			"你是小学五年级人工智能课堂里的学习助手。",
-			"只回答学习相关问题，包括人工智能、课堂知识、学习方法、作业思路和学科知识。",
-			"如果学生询问与学习无关、娱乐八卦、违法危险、隐私攻击等内容，请礼貌拒绝，并引导回学习问题。",
-			"每次回复必须控制在1000个中文字符以内。",
-			"解释要符合小学五年级学生理解水平：用短句、例子和鼓励性的语气，不要堆砌术语。",
-			"不要直接代写完整作业答案，可以给思路、步骤、提示和检查方法。",
-		}, "\n"),
-	}}
+	messages := []AIChatMessage{{Role: "system", Content: systemPrompt}}
 	messages = append(messages, history...)
 
 	payload := map[string]interface{}{
@@ -887,6 +919,24 @@ func statsRows(stats StatsSummary) [][]string {
 			fmt.Sprintf("%d/%d", part.Completed, part.Total),
 		})
 	}
+	if stats.AIGuidanceStats.Plan.Enabled {
+		rows = append(rows,
+			[]string{"AI学习指导", "AI学习计划已生成", strconv.Itoa(stats.AIGuidanceStats.Plan.GeneratedCount)},
+			[]string{"AI学习指导", "AI学习计划已完成", strconv.Itoa(stats.AIGuidanceStats.Plan.CompletedCount)},
+			[]string{"AI学习指导", "AI学习计划已跳过", strconv.Itoa(stats.AIGuidanceStats.Plan.SkippedCount)},
+			[]string{"AI学习指导", "AI学习计划生成失败", strconv.Itoa(stats.AIGuidanceStats.Plan.FailedCount)},
+			[]string{"AI学习指导", "AI学习计划追问轮次", strconv.Itoa(stats.AIGuidanceStats.Plan.FollowUpRounds)},
+		)
+	}
+	if stats.AIGuidanceStats.Evaluation.Enabled {
+		rows = append(rows,
+			[]string{"AI学习指导", "AI学习评价已生成", strconv.Itoa(stats.AIGuidanceStats.Evaluation.GeneratedCount)},
+			[]string{"AI学习指导", "AI学习评价已完成", strconv.Itoa(stats.AIGuidanceStats.Evaluation.CompletedCount)},
+			[]string{"AI学习指导", "AI学习评价已跳过", strconv.Itoa(stats.AIGuidanceStats.Evaluation.SkippedCount)},
+			[]string{"AI学习指导", "AI学习评价生成失败", strconv.Itoa(stats.AIGuidanceStats.Evaluation.FailedCount)},
+			[]string{"AI学习指导", "AI学习评价追问轮次", strconv.Itoa(stats.AIGuidanceStats.Evaluation.FollowUpRounds)},
+		)
+	}
 	rows = append(rows, []string{"学生明细", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "评分备注"})
 	for _, student := range stats.Students {
 		rows = append(rows, []string{
@@ -937,7 +987,7 @@ func (h *Handler) writeStatsWorkbook(wb *excelize.File, stats StatsSummary, cour
 	if courseID > 0 {
 		courseTitle = courseTitleByID(stats.Courses, courseID)
 	}
-	summaryRows, questionRows, chatRows, err := h.buildExportRows(stats.Students, courseTitle)
+	summaryRows, questionRows, chatRows, guidanceRows, err := h.buildExportRows(stats.Students, courseTitle)
 	if err != nil {
 		return err
 	}
@@ -950,6 +1000,9 @@ func (h *Handler) writeStatsWorkbook(wb *excelize.File, stats StatsSummary, cour
 	if err := writeMatrixSheet(wb, "AI聊天记录", chatRows, true); err != nil {
 		return err
 	}
+	if err := writeMatrixSheet(wb, "AI学习指导", guidanceRows, true); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -960,7 +1013,7 @@ func (h *Handler) writeAllStatsWorkbook(wb *excelize.File, stats StatsSummary) e
 	}
 
 	summaryRows := [][]string{{
-		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "评分备注", "最后提交时间",
+		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "AI学习计划状态", "计划追问轮次", "AI学习评价状态", "评价追问轮次", "评分备注", "最后提交时间",
 	}}
 	questionRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "显示给", "提交时间",
@@ -968,19 +1021,23 @@ func (h *Handler) writeAllStatsWorkbook(wb *excelize.File, stats StatsSummary) e
 	chatRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "题目", "提交次数", "轮次", "角色", "内容", "提交时间",
 	}}
+	guidanceRows := [][]string{{
+		"课程", "班级", "姓名", "阶段", "状态", "追问轮次", "消息序号", "角色", "内容", "时间",
+	}}
 
 	for _, course := range stats.Courses {
 		courseStats, err := h.repo.BuildStatsSummary(course.ID, 0)
 		if err != nil {
 			return err
 		}
-		courseSummaryRows, courseQuestionRows, courseChatRows, err := h.buildExportRows(courseStats.Students, course.Title)
+		courseSummaryRows, courseQuestionRows, courseChatRows, courseGuidanceRows, err := h.buildExportRows(courseStats.Students, course.Title)
 		if err != nil {
 			return err
 		}
 		summaryRows = append(summaryRows, courseSummaryRows[1:]...)
 		questionRows = append(questionRows, courseQuestionRows[1:]...)
 		chatRows = append(chatRows, courseChatRows[1:]...)
+		guidanceRows = append(guidanceRows, courseGuidanceRows[1:]...)
 	}
 
 	if err := writeMatrixSheet(wb, "学生答题汇总", summaryRows, true); err != nil {
@@ -992,18 +1049,24 @@ func (h *Handler) writeAllStatsWorkbook(wb *excelize.File, stats StatsSummary) e
 	if err := writeMatrixSheet(wb, "AI聊天记录", chatRows, true); err != nil {
 		return err
 	}
+	if err := writeMatrixSheet(wb, "AI学习指导", guidanceRows, true); err != nil {
+		return err
+	}
 	return nil
 }
 
-func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) ([][]string, [][]string, [][]string, error) {
+func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) ([][]string, [][]string, [][]string, [][]string, error) {
 	summaryRows := [][]string{{
-		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "评分备注", "最后提交时间",
+		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "AI学习计划状态", "计划追问轮次", "AI学习评价状态", "评价追问轮次", "评分备注", "最后提交时间",
 	}}
 	questionRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "显示给", "提交时间",
 	}}
 	chatRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "题目", "提交次数", "轮次", "角色", "内容", "提交时间",
+	}}
+	guidanceRows := [][]string{{
+		"课程", "班级", "姓名", "阶段", "状态", "追问轮次", "消息序号", "角色", "内容", "时间",
 	}}
 
 	for _, student := range students {
@@ -1035,6 +1098,10 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 				summary.GuessResultText,
 				"0",
 				"0",
+				"",
+				"0",
+				"",
+				"0",
 				summary.TeacherScoreNote,
 				summary.UpdatedAt,
 			})
@@ -1043,7 +1110,7 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 
 		detail, err := h.repo.GetStudentDetail(student.SubmissionID)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		answerCount := 0
 		aiRounds := 0
@@ -1063,6 +1130,29 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 		}
 		summary.AnswerCount = answerCount
 		summary.AIChatRounds = aiRounds
+		planStatus, planRounds, evaluationStatus, evaluationRounds := "", 0, "", 0
+		for _, guidance := range detail.AIGuidance {
+			switch guidance.Phase {
+			case "plan":
+				planStatus, planRounds = guidanceStatusText(guidance.Status), guidance.FollowUpRounds
+			case "evaluation":
+				evaluationStatus, evaluationRounds = guidanceStatusText(guidance.Status), guidance.FollowUpRounds
+			}
+			for _, message := range guidance.Messages {
+				guidanceRows = append(guidanceRows, []string{
+					detail.CourseTitle,
+					detail.ClassName,
+					detail.StudentName,
+					guidance.Title,
+					guidanceStatusText(guidance.Status),
+					strconv.Itoa(guidance.FollowUpRounds),
+					strconv.Itoa(message.MessageOrder),
+					roleText(message.Role),
+					message.Content,
+					message.CreatedAt,
+				})
+			}
+		}
 		summaryRows = append(summaryRows, []string{
 			summary.CourseTitle,
 			summary.ClassName,
@@ -1076,6 +1166,10 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 			summary.GuessResultText,
 			strconv.Itoa(summary.AnswerCount),
 			strconv.Itoa(summary.AIChatRounds),
+			planStatus,
+			strconv.Itoa(planRounds),
+			evaluationStatus,
+			strconv.Itoa(evaluationRounds),
 			summary.TeacherScoreNote,
 			summary.UpdatedAt,
 		})
@@ -1132,7 +1226,24 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 		}
 	}
 
-	return summaryRows, questionRows, chatRows, nil
+	return summaryRows, questionRows, chatRows, guidanceRows, nil
+}
+
+func guidanceStatusText(status string) string {
+	switch status {
+	case "ready":
+		return "已生成"
+	case "completed":
+		return "已完成"
+	case "skipped":
+		return "已跳过"
+	case "failed":
+		return "生成失败"
+	case "generating":
+		return "生成中"
+	default:
+		return status
+	}
 }
 
 func courseTitleByID(courses []Course, courseID int) string {

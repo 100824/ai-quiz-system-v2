@@ -173,7 +173,7 @@ func (r *Repository) ListTemplates() ([]CourseTemplate, error) {
 
 func (r *Repository) ListCourses() ([]Course, error) {
 	rows, err := r.db.Query(`
-		SELECT id, COALESCE(template_id, 0), template_code, title, mode, description, status, created_at, updated_at
+		SELECT id, COALESCE(template_id, 0), template_code, title, mode, description, learning_objective, status, created_at, updated_at
 		FROM courses
 		WHERE deleted_at IS NULL
 		ORDER BY id DESC
@@ -185,7 +185,7 @@ func (r *Repository) ListCourses() ([]Course, error) {
 	items := []Course{}
 	for rows.Next() {
 		var item Course
-		if err := rows.Scan(&item.ID, &item.TemplateID, &item.TemplateCode, &item.Title, &item.Mode, &item.Description, &item.Status, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.TemplateID, &item.TemplateCode, &item.Title, &item.Mode, &item.Description, &item.LearningObjective, &item.Status, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -193,7 +193,7 @@ func (r *Repository) ListCourses() ([]Course, error) {
 	return items, rows.Err()
 }
 
-func (r *Repository) CreateCourse(title, description, templateCode string) (int, error) {
+func (r *Repository) CreateCourse(title, description, learningObjective, templateCode string) (int, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return 0, errors.New("课程名称不能为空")
@@ -223,9 +223,9 @@ func (r *Repository) CreateCourse(title, description, templateCode string) (int,
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(`
-		INSERT INTO courses (template_id, template_code, title, mode, description, status)
-		VALUES (?, ?, ?, ?, ?, 'active')
-	`, template.ID, template.Code, title, template.Code, strings.TrimSpace(description))
+		INSERT INTO courses (template_id, template_code, title, mode, description, learning_objective, status)
+		VALUES (?, ?, ?, ?, ?, ?, 'active')
+	`, template.ID, template.Code, title, template.Code, strings.TrimSpace(description), strings.TrimSpace(learningObjective))
 	if err != nil {
 		return 0, err
 	}
@@ -243,6 +243,37 @@ func (r *Repository) CreateCourse(title, description, templateCode string) (int,
 		return 0, err
 	}
 	return courseID, nil
+}
+
+func (r *Repository) UpdateCourse(id int, description, learningObjective string) error {
+	if id <= 0 {
+		return errors.New("课堂ID无效")
+	}
+	learningObjective = strings.TrimSpace(learningObjective)
+	if learningObjective == "" {
+		sections, err := r.ListSections(id)
+		if err != nil {
+			return err
+		}
+		for _, section := range sections {
+			if parseAIGuidanceConfig(section).Enabled {
+				return errors.New("请先关闭AI学习指导，再清空学习目标")
+			}
+		}
+	}
+	res, err := r.db.Exec(`
+		UPDATE courses
+		SET description = ?, learning_objective = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND deleted_at IS NULL
+	`, strings.TrimSpace(description), learningObjective, id)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return errors.New("课堂不存在")
+	}
+	return nil
 }
 
 func createSectionsFromTemplate(tx *sql.Tx, courseID int, template CourseTemplate) error {
@@ -363,9 +394,9 @@ func (r *Repository) CloneCourse(originalID int, newTitle string) (int, error) {
 
 	// Fetch original course
 	var orig Course
-	err := r.db.QueryRow(`SELECT id, COALESCE(template_id,0), template_code, title, mode, description, status, created_at, updated_at
+	err := r.db.QueryRow(`SELECT id, COALESCE(template_id,0), template_code, title, mode, description, learning_objective, status, created_at, updated_at
 		FROM courses WHERE id = ? AND deleted_at IS NULL`, originalID).Scan(
-		&orig.ID, &orig.TemplateID, &orig.TemplateCode, &orig.Title, &orig.Mode, &orig.Description, &orig.Status, &orig.CreatedAt, &orig.UpdatedAt)
+		&orig.ID, &orig.TemplateID, &orig.TemplateCode, &orig.Title, &orig.Mode, &orig.Description, &orig.LearningObjective, &orig.Status, &orig.CreatedAt, &orig.UpdatedAt)
 	if err != nil {
 		return 0, fmt.Errorf("原课程不存在: %w", err)
 	}
@@ -377,8 +408,8 @@ func (r *Repository) CloneCourse(originalID int, newTitle string) (int, error) {
 	defer tx.Rollback()
 
 	// Create new course
-	res, err := tx.Exec(`INSERT INTO courses (template_id, template_code, title, mode, description, status)
-		VALUES (?, ?, ?, ?, ?, 'active')`, orig.TemplateID, orig.TemplateCode, newTitle, orig.Mode, orig.Description)
+	res, err := tx.Exec(`INSERT INTO courses (template_id, template_code, title, mode, description, learning_objective, status)
+		VALUES (?, ?, ?, ?, ?, ?, 'active')`, orig.TemplateID, orig.TemplateCode, newTitle, orig.Mode, orig.Description, orig.LearningObjective)
 	if err != nil {
 		return 0, err
 	}
@@ -405,6 +436,7 @@ func (r *Repository) CloneCourse(originalID int, newTitle string) (int, error) {
 		if err := sectionRows.Scan(&oldSectID, &key, &title, &typ, &sortOrder, &enabled, &fixed, &rulesRaw); err != nil {
 			return 0, err
 		}
+		rulesRaw = disableAIGuidanceRule(rulesRaw)
 		res, err := tx.Exec(`INSERT INTO course_sections (course_id, section_key, title, type, sort_order, enabled, fixed, rules_json)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, newID, key, title, typ, sortOrder, enabled, fixed, rulesRaw)
 		if err != nil {
@@ -500,9 +532,27 @@ func (r *Repository) SetClassCourses(classID int, courseIDs []int) error {
 	return tx.Commit()
 }
 
+func disableAIGuidanceRule(raw string) string {
+	rules := map[string]interface{}{}
+	if json.Unmarshal([]byte(raw), &rules) != nil {
+		return raw
+	}
+	guidance, ok := rules["aiGuidance"].(map[string]interface{})
+	if !ok {
+		return raw
+	}
+	guidance["enabled"] = false
+	rules["aiGuidance"] = guidance
+	encoded, err := json.Marshal(rules)
+	if err != nil {
+		return raw
+	}
+	return string(encoded)
+}
+
 func (r *Repository) ListCoursesForClass(classID int) ([]Course, error) {
 	rows, err := r.db.Query(`
-		SELECT c.id, COALESCE(c.template_id, 0), c.template_code, c.title, c.mode, c.description, c.status, c.created_at, c.updated_at
+		SELECT c.id, COALESCE(c.template_id, 0), c.template_code, c.title, c.mode, c.description, c.learning_objective, c.status, c.created_at, c.updated_at
 		FROM courses c
 		JOIN course_classes cc ON cc.course_id = c.id
 		WHERE cc.class_id = ? AND c.deleted_at IS NULL
@@ -515,7 +565,7 @@ func (r *Repository) ListCoursesForClass(classID int) ([]Course, error) {
 	items := []Course{}
 	for rows.Next() {
 		var item Course
-		if err := rows.Scan(&item.ID, &item.TemplateID, &item.TemplateCode, &item.Title, &item.Mode, &item.Description, &item.Status, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.TemplateID, &item.TemplateCode, &item.Title, &item.Mode, &item.Description, &item.LearningObjective, &item.Status, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -806,6 +856,10 @@ func (r *Repository) SubmitSection(courseID, classID, studentID, sectionID int, 
 		}
 		answers[key] = normalized
 	}
+	lockedReflectionQuiz, err := r.isLockedReflectionQuizSection(sectionID)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, err
@@ -819,6 +873,9 @@ func (r *Repository) SubmitSection(courseID, classID, studentID, sectionID int, 
 	attemptNo, err := nextAttemptNoTx(tx, submissionID, sectionID)
 	if err != nil {
 		return nil, err
+	}
+	if lockedReflectionQuiz && attemptNo > 2 {
+		return nil, errors.New("第三部分小测最多只能重测一次")
 	}
 	score, total, results := scoreQuestions(questions, answers)
 	res, err := tx.Exec(`
@@ -854,6 +911,9 @@ func (r *Repository) SubmitSection(courseID, classID, studentID, sectionID int, 
 		return nil, err
 	}
 	if section.Type == "reflection" {
+		if err := r.CompleteReflectionGuidanceTx(tx, submissionID, sectionID); err != nil {
+			return nil, err
+		}
 		if _, err := tx.Exec(`UPDATE submissions SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, submissionID); err != nil {
 			return nil, err
 		}
@@ -1249,14 +1309,15 @@ func (r *Repository) GetScoreSummary(courseID, classID, studentID int) (ScoreSum
 	var item ScoreSummary
 	item.ActualScoreSource = "none"
 	item.GuessResult = "unknown"
+	var submissionID int
 	var predicted, quizScore, teacherScore sql.NullInt64
 	var actualSource, teacherNote string
 	err := r.db.QueryRow(`
-		SELECT sr.predicted_score, sr.actual_score, COALESCE(sr.teacher_score, NULL), COALESCE(sr.actual_score_source, 'none'), COALESCE(sr.teacher_score_note, '')
+		SELECT s.id, sr.predicted_score, sr.actual_score, COALESCE(sr.teacher_score, NULL), COALESCE(sr.actual_score_source, 'none'), COALESCE(sr.teacher_score_note, '')
 		FROM submissions s
 		LEFT JOIN score_records sr ON sr.submission_id = s.id
 		WHERE s.course_id = ? AND s.class_id = ? AND s.student_id = ?
-	`, courseID, classID, studentID).Scan(&predicted, &quizScore, &teacherScore, &actualSource, &teacherNote)
+	`, courseID, classID, studentID).Scan(&submissionID, &predicted, &quizScore, &teacherScore, &actualSource, &teacherNote)
 	if err == sql.ErrNoRows {
 		item.GuessResultText = guessResultText(item.GuessResult)
 		return item, nil
@@ -1265,6 +1326,19 @@ func (r *Repository) GetScoreSummary(courseID, classID, studentID int) (ScoreSum
 		return item, err
 	}
 	item.PredictedScore, item.QuizScore, item.TeacherScore, item.ActualScore, item.ActualScoreSource, item.GuessResult, item.GuessResultText, item.TeacherScoreNote = teacherScoreRows(predicted, quizScore, teacherScore, actualSource, teacherNote)
+	var retakeScore sql.NullInt64
+	err = r.db.QueryRow(`
+		SELECT aa.score
+		FROM answer_attempts aa
+		JOIN course_sections cs ON cs.id = aa.section_id
+		WHERE aa.submission_id = ? AND cs.type = 'quiz' AND aa.attempt_no > 1 AND aa.score IS NOT NULL
+		ORDER BY aa.attempt_no DESC, aa.id DESC
+		LIMIT 1
+	`, submissionID).Scan(&retakeScore)
+	if err != nil && err != sql.ErrNoRows {
+		return item, err
+	}
+	item.RetakeScore = intFromNull(retakeScore)
 	return item, nil
 }
 
@@ -1504,6 +1578,13 @@ func (r *Repository) fillCourseStats(stats *StatsSummary, courseID, classID int)
 		if err := attemptRows.Err(); err != nil {
 			return err
 		}
+		for _, submission := range submissions {
+			effective, err := r.effectiveCompletedSections(submission.id, submission.completedSections, sections)
+			if err != nil {
+				return err
+			}
+			submission.completedSections = effective
+		}
 	}
 
 	part2FilledStudents := map[int]bool{}
@@ -1562,7 +1643,14 @@ func (r *Repository) fillCourseStats(stats *StatsSummary, courseID, classID int)
 		if sectionType == "prediction" && questionKey != "fixed_prediction_score" {
 			answerText := strings.TrimSpace(rawAnswerText(json.RawMessage(answerRaw)))
 			if answerText != "" {
-				stats.Part1Stats.LearningMethodsDistribution[answerText]++
+				switch questionType {
+				case "open_text":
+					stats.Part1Stats.LearningMethodsDistribution["开放题（已完成）"]++
+				case "ai_chat":
+					stats.Part1Stats.LearningMethodsDistribution["AI 对话题（已完成）"]++
+				default:
+					stats.Part1Stats.LearningMethodsDistribution[answerText]++
+				}
 			}
 		}
 		if sectionType == "quiz" {
@@ -1707,7 +1795,7 @@ func (r *Repository) fillCourseStats(stats *StatsSummary, courseID, classID int)
 		}
 		return stats.Part3Stats.QuestionCorrectRate[i].SortOrder < stats.Part3Stats.QuestionCorrectRate[j].SortOrder
 	})
-	return nil
+	return r.FillAIGuidanceStats(stats, courseID, classID)
 }
 
 func completionText(completed, total int, status string) string {
@@ -1773,12 +1861,33 @@ func (r *Repository) ListStudentHistory(classID, studentID int) ([]StudentHistor
 			actualSource,
 			teacherNote,
 		)
-		item.CompletedParts = 0
-		if err := r.db.QueryRow(`
-			SELECT COUNT(DISTINCT aa.section_id)
-			FROM answer_attempts aa
-			WHERE aa.submission_id = ?
-		`, item.SubmissionID).Scan(&item.CompletedParts); err != nil {
+		sections, err := r.ListSections(item.CourseID)
+		if err != nil {
+			return nil, err
+		}
+		completed := map[int]bool{}
+		attemptRows, err := r.db.Query(`SELECT DISTINCT section_id FROM answer_attempts WHERE submission_id = ?`, item.SubmissionID)
+		if err != nil {
+			return nil, err
+		}
+		for attemptRows.Next() {
+			var sectionID int
+			if err := attemptRows.Scan(&sectionID); err != nil {
+				attemptRows.Close()
+				return nil, err
+			}
+			completed[sectionID] = true
+		}
+		if err := attemptRows.Close(); err != nil {
+			return nil, err
+		}
+		completed, err = r.effectiveCompletedSections(item.SubmissionID, completed, sections)
+		if err != nil {
+			return nil, err
+		}
+		item.CompletedParts = len(completed)
+		item.AIGuidance, err = r.ListAIGuidanceForSubmission(item.SubmissionID)
+		if err != nil {
 			return nil, err
 		}
 		item.StatusText = completionText(item.CompletedParts, 0, item.Status)
@@ -1953,6 +2062,17 @@ func (r *Repository) GetStudentDetail(submissionID int) (StudentDetail, error) {
 		return item, err
 	}
 
+	completedSections, err = r.effectiveCompletedSections(submissionID, completedSections, sections)
+	if err != nil {
+		return item, err
+	}
+	for index := range item.Sections {
+		item.Sections[index].Completed = completedSections[item.Sections[index].SectionID]
+	}
+	item.AIGuidance, err = r.ListAIGuidanceForSubmission(submissionID)
+	if err != nil {
+		return item, err
+	}
 	item.CompletedParts = len(completedSections)
 	item.StatusText = completionText(item.CompletedParts, len(item.Sections), item.Status)
 	return item, nil

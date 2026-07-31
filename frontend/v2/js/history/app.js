@@ -276,12 +276,13 @@ function renderStudentDetail(detail) {
   if (!detail) return '<p class="history-empty-part">未找到答题详情。</p>';
 
   const sections = Array.isArray(detail.sections) ? detail.sections : [];
+  const guidance = Array.isArray(detail.aiGuidance) ? detail.aiGuidance : [];
   const hasAnyAnswer = sections.some((s) => {
     const attempts = Array.isArray(s.attempts) ? s.attempts : [];
     return attempts.some((a) => Array.isArray(a.questions) && a.questions.length > 0);
   });
 
-  if (!hasAnyAnswer) {
+  if (!hasAnyAnswer && !guidance.length) {
     return '<div class="history-detail-empty"><p class="history-empty-part">该学生尚未作答任何内容。</p></div>';
   }
 
@@ -303,6 +304,20 @@ function renderStudentDetail(detail) {
       ${detail.teacherScoreNote ? `<p><strong>评分备注：</strong>${escapeHtml(detail.teacherScoreNote)}</p>` : ''}
       <p><strong>开始时间：</strong>${escapeHtml(formatTime(detail.startedAt))} ${detail.completedAt ? `｜完成时间：${escapeHtml(formatTime(detail.completedAt))}` : ''}</p>
     </div>
+    ${guidance.length ? `
+      <div class="history-parts-grid history-ai-guidance-grid">
+        ${guidance.map((session) => `
+          <section class="history-part-card history-ai-guidance-card">
+            <div class="history-part-card__head">
+              <h4 class="history-part-card__title">${escapeHtml(session.title || 'AI学习指导')}</h4>
+              <span class="history-status history-status--done">${session.status === 'skipped' ? '已跳过' : session.status === 'failed' ? '生成失败' : '已生成'}</span>
+            </div>
+            <p class="history-question-card__title">学生追问 ${session.followUpRounds || 0} 轮</p>
+            ${renderChatMessages(session.messages || [])}
+          </section>
+        `).join('')}
+      </div>
+    ` : ''}
     <div class="history-parts-grid">
       ${sections.map((s, i) => renderDetailSection(s, i)).join('')}
     </div>

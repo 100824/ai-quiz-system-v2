@@ -36,15 +36,62 @@ type CourseTemplate struct {
 }
 
 type Course struct {
+	ID                int    `json:"id"`
+	TemplateID        int    `json:"templateId"`
+	TemplateCode      string `json:"templateCode"`
+	Title             string `json:"title"`
+	Mode              string `json:"mode"`
+	Description       string `json:"description"`
+	LearningObjective string `json:"learningObjective"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"createdAt"`
+	UpdatedAt         string `json:"updatedAt"`
+}
+
+type AIGuidanceMessage struct {
 	ID           int    `json:"id"`
-	TemplateID   int    `json:"templateId"`
-	TemplateCode string `json:"templateCode"`
-	Title        string `json:"title"`
-	Mode         string `json:"mode"`
-	Description  string `json:"description"`
-	Status       string `json:"status"`
+	MessageOrder int    `json:"messageOrder"`
+	Role         string `json:"role"`
+	Content      string `json:"content"`
 	CreatedAt    string `json:"createdAt"`
-	UpdatedAt    string `json:"updatedAt"`
+}
+
+type AIGuidanceSession struct {
+	ID             int                 `json:"id"`
+	SubmissionID   int                 `json:"submissionId"`
+	SectionID      int                 `json:"sectionId"`
+	Phase          string              `json:"phase"`
+	Title          string              `json:"title"`
+	Status         string              `json:"status"`
+	Model          string              `json:"model"`
+	ErrorMessage   string              `json:"errorMessage,omitempty"`
+	FollowUpRounds int                 `json:"followUpRounds"`
+	GeneratedAt    string              `json:"generatedAt,omitempty"`
+	CompletedAt    string              `json:"completedAt,omitempty"`
+	CreatedAt      string              `json:"createdAt"`
+	UpdatedAt      string              `json:"updatedAt"`
+	Messages       []AIGuidanceMessage `json:"messages"`
+}
+
+type AIGuidanceConfig struct {
+	Enabled bool   `json:"enabled"`
+	Phase   string `json:"phase"`
+	Title   string `json:"title"`
+	Locked  bool   `json:"locked,omitempty"`
+}
+
+type AIGuidancePhaseStats struct {
+	Enabled        bool `json:"enabled"`
+	GeneratedCount int  `json:"generatedCount"`
+	CompletedCount int  `json:"completedCount"`
+	SkippedCount   int  `json:"skippedCount"`
+	FailedCount    int  `json:"failedCount"`
+	FollowUpRounds int  `json:"followUpRounds"`
+}
+
+type AIGuidanceStats struct {
+	Plan       AIGuidancePhaseStats `json:"plan"`
+	Evaluation AIGuidancePhaseStats `json:"evaluation"`
 }
 
 type Section struct {
@@ -110,6 +157,7 @@ type StatsSummary struct {
 	Part1Stats           Part1Stats        `json:"part1Stats"`
 	Part2Stats           Part2Stats        `json:"part2Stats"`
 	Part3Stats           Part3Stats        `json:"part3Stats"`
+	AIGuidanceStats      AIGuidanceStats   `json:"aiGuidanceStats"`
 	Classroom            *Classroom        `json:"classroom,omitempty"`
 }
 
@@ -174,33 +222,35 @@ type Part3Stats struct {
 }
 
 type StudentHistoryRecord struct {
-	CourseID          int    `json:"courseId"`
-	CourseTitle       string `json:"courseTitle"`
-	Mode              string `json:"mode,omitempty"`
-	ClassID           int    `json:"classId"`
-	ClassName         string `json:"className"`
-	StudentID         int    `json:"studentId"`
-	StudentName       string `json:"studentName"`
-	SubmissionID      int    `json:"submissionId"`
-	Status            string `json:"status"`
-	StatusText        string `json:"statusText"`
-	PredictedScore    *int   `json:"predictedScore,omitempty"`
-	QuizScore         *int   `json:"quizScore,omitempty"`
-	TeacherScore      *int   `json:"teacherScore,omitempty"`
-	ActualScore       *int   `json:"actualScore,omitempty"`
-	ActualScoreSource string `json:"actualScoreSource"`
-	TeacherScoreNote  string `json:"teacherScoreNote,omitempty"`
-	GuessResult       string `json:"guessResult"`
-	GuessResultText   string `json:"guessResultText"`
-	CompletedParts    int    `json:"completedParts"`
-	StartedAt         string `json:"startedAt"`
-	CompletedAt       string `json:"completedAt,omitempty"`
-	UpdatedAt         string `json:"updatedAt"`
+	CourseID          int                 `json:"courseId"`
+	CourseTitle       string              `json:"courseTitle"`
+	Mode              string              `json:"mode,omitempty"`
+	ClassID           int                 `json:"classId"`
+	ClassName         string              `json:"className"`
+	StudentID         int                 `json:"studentId"`
+	StudentName       string              `json:"studentName"`
+	SubmissionID      int                 `json:"submissionId"`
+	Status            string              `json:"status"`
+	StatusText        string              `json:"statusText"`
+	PredictedScore    *int                `json:"predictedScore,omitempty"`
+	QuizScore         *int                `json:"quizScore,omitempty"`
+	TeacherScore      *int                `json:"teacherScore,omitempty"`
+	ActualScore       *int                `json:"actualScore,omitempty"`
+	ActualScoreSource string              `json:"actualScoreSource"`
+	TeacherScoreNote  string              `json:"teacherScoreNote,omitempty"`
+	GuessResult       string              `json:"guessResult"`
+	GuessResultText   string              `json:"guessResultText"`
+	CompletedParts    int                 `json:"completedParts"`
+	StartedAt         string              `json:"startedAt"`
+	CompletedAt       string              `json:"completedAt,omitempty"`
+	UpdatedAt         string              `json:"updatedAt"`
+	AIGuidance        []AIGuidanceSession `json:"aiGuidance,omitempty"`
 }
 
 type ScoreSummary struct {
 	PredictedScore    *int   `json:"predictedScore,omitempty"`
 	QuizScore         *int   `json:"quizScore,omitempty"`
+	RetakeScore       *int   `json:"retakeScore,omitempty"`
 	TeacherScore      *int   `json:"teacherScore,omitempty"`
 	ActualScore       *int   `json:"actualScore,omitempty"`
 	ActualScoreSource string `json:"actualScoreSource"`
@@ -233,6 +283,7 @@ type StudentDetail struct {
 	CompletedAt       string                 `json:"completedAt,omitempty"`
 	UpdatedAt         string                 `json:"updatedAt"`
 	Sections          []StudentDetailSection `json:"sections"`
+	AIGuidance        []AIGuidanceSession    `json:"aiGuidance,omitempty"`
 }
 
 type StudentDetailSection struct {

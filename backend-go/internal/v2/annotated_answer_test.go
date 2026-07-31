@@ -113,7 +113,7 @@ func TestSubmitSectionValidatesAndStoresSanitizedOpenText(t *testing.T) {
 		t.Fatalf("invalid submission id: %#v", result["submissionId"])
 	}
 	handler := NewHandler(repo)
-	_, questionRows, _, err := handler.buildExportRows([]StudentStats{{
+	_, questionRows, _, _, err := handler.buildExportRows([]StudentStats{{
 		SubmissionID: submissionID,
 		ClassName:    "测试班",
 		StudentName:  "测试学生",

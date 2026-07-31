@@ -21,6 +21,9 @@ const state = {
   lastQuizResultKey: '',
   aiChatMessages: new Map(),
   aiChatPending: new Map(),
+  aiGuidanceSessions: new Map(),
+  aiGuidancePending: new Set(),
+  aiGuidancePollCounts: new Map(),
   retryingQuizSectionId: null,
   pollTimer: null,
   completedSectionIds: new Set(),
@@ -103,6 +106,13 @@ function nextOpenedIncompleteSectionIndex(stageIndex) {
 
 function getSectionDetail(sectionId) {
   return state.sectionDetailMap.get(Number(sectionId)) || null;
+}
+
+function canRetryQuizSection(sectionId) {
+  const attempts = getSectionDetail(sectionId)?.attempts || [];
+  // The server-side section attempts are the source of truth. The session
+  // cache is shared by the course and can otherwise hide a first retry.
+  return attempts.length === 1 && Number(attempts[0]?.attemptNo || 1) === 1;
 }
 
 function latestQuizAttemptResult(sectionId) {
@@ -199,7 +209,7 @@ function renderAIChatMessages(messages = [], pending = false) {
     <div class="ai-chat-message ai-chat-message--${item.role === 'user' ? 'user' : 'assistant'}">
       <div class="ai-chat-message__role">${item.role === 'user' ? '我' : 'AI 学习助手'}</div>
       <div class="ai-chat-message__content">${renderMarkdown(item.content)}</div>
-      ${item.role === 'assistant' ? `<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" onclick="copyAIChatMessage(this)" title="复制回复内容">📋 复制</button></div>` : ''}
+      ${item.role === 'assistant' ? `<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" title="复制回复内容">📋 复制</button></div>` : ''}
     </div>
   `).join('');
   return pending ? rendered + renderAIChatThinking() : rendered;
@@ -304,24 +314,22 @@ function renderCompletedQuestion(question, index) {
 }
 
 function renderCompletedSection(section, index) {
-  const detail = getSectionDetail(section.id);
-  const attempts = detail?.attempts || [];
-  const firstAttempt = attempts.length ? attempts[0] : null;
-  const questions = firstAttempt?.questions || [];
+  const isFinalizedRetryQuiz = section.type === 'quiz'
+    && section.rules?.allowRetry === true;
   return `
     <section class="student-quiz-block student-stage-block student-stage-block--done">
       <div class="student-quiz-head">
         <span class="student-quiz-tag">已完成</span>
         <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
       </div>
-      ${questions.length
-        ? questions.map((question, questionIndex) => renderCompletedQuestion(question, questionIndex)).join('')
+      ${isFinalizedRetryQuiz
+        ? `<div id="completedQuizResult-${section.id}" class="quiz-result-page"></div>`
         : `
-          <div class="waiting-message">
-            <div class="emoji">✅</div>
-            <p>该部分已完成，等待老师开启下一部分。</p>
-          </div>
-        `}
+            <div class="waiting-message">
+              <div class="emoji">✅</div>
+              <p>该部分已完成，等待老师开启下一部分。</p>
+            </div>
+          `}
     </section>
   `;
 }
@@ -330,12 +338,7 @@ function renderRetryableQuizSection(section, index) {
   return `
     <section class="student-quiz-block student-stage-block student-stage-block--active student-stage-block--retry">
       <div class="student-quiz-head">
-        <span class="student-quiz-tag">可再次作答</span>
         <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
-      </div>
-      <div class="item">
-        <strong>再答一次说明</strong>
-        <div>你可以再次完成小测来复习巩固；系统只记录第一次提交的小测分数。</div>
       </div>
       <div id="quizRetryQuestions" class="list"></div>
       <div id="quizRetrySubmitWrap"></div>
@@ -433,6 +436,9 @@ async function loadClassScopedData() {
   state.lastQuizResult = null;
   state.lastQuizResultKey = '';
   state.aiChatMessages = new Map();
+  state.aiGuidanceSessions = new Map();
+  state.aiGuidancePending = new Set();
+  state.aiGuidancePollCounts = new Map();
   state.completedSectionIds = new Set();
   $('studentNameInput').value = '';
   renderStudentNameList();
@@ -537,6 +543,8 @@ async function syncCompletedSectionsFromHistory() {
   state.completedSectionIds = new Set();
   state.submissionDetail = null;
   state.sectionDetailMap = new Map();
+  state.aiGuidanceSessions = new Map();
+  state.aiGuidancePollCounts = new Map();
   if (!state.selectedCourseId || !state.selectedClassId || !state.student) return;
   try {
     const data = await api(`/student-history?classId=${state.selectedClassId}&studentId=${state.student.id}`);
@@ -545,8 +553,12 @@ async function syncCompletedSectionsFromHistory() {
     const completedParts = Math.max(0, Number(record.completedParts || 0));
     if (record.submissionId) {
       try {
-        const detail = await api(`/stats/student-detail?submissionId=${record.submissionId}`);
+        const detailPayload = await api(`/stats/student-detail?submissionId=${record.submissionId}`);
+        // The statistics endpoint wraps the actual submission in `detail`.
+        // Keep accepting the flat shape as well for backwards compatibility.
+        const detail = detailPayload.detail || detailPayload;
         state.submissionDetail = detail;
+        state.aiGuidanceSessions = new Map((detail.aiGuidance || []).map((session) => [Number(session.sectionId), session]));
         state.sectionDetailMap = new Map((detail.sections || []).map((section) => [Number(section.sectionId), section]));
         const completedIds = (detail.sections || [])
           .filter((section) => section.completed)
@@ -566,6 +578,244 @@ async function syncCompletedSectionsFromHistory() {
     state.completedSectionIds = new Set(state.sections.slice(0, completedParts).map((item) => item.id));
   } catch (error) {
     console.warn('加载学生进度失败', error);
+  }
+}
+
+function aiGuidanceConfig(section) {
+  const config = section?.rules?.aiGuidance;
+  return config?.enabled ? config : null;
+}
+
+function sectionHasAttempt(sectionId) {
+  return (getSectionDetail(sectionId)?.attempts || []).length > 0;
+}
+
+function guidanceMessages(messages = []) {
+  return (Array.isArray(messages) ? messages : [])
+    .map((item) => ({
+      role: String(item?.role || '').trim(),
+      content: String(item?.content || '').trim()
+    }))
+    .filter((item) => item.content && (item.role === 'user' || item.role === 'assistant'));
+}
+
+function renderAIGuidanceMessages(messages = [], pending = false) {
+  const normalized = guidanceMessages(messages);
+  const html = normalized.length
+    ? normalized.map((item) => `
+      <div class="ai-chat-message ai-chat-message--${item.role === 'user' ? 'user' : 'assistant'}">
+        <div class="ai-chat-message__role">${item.role === 'user' ? '我' : 'AI 学习指导助手'}</div>
+        <div class="ai-chat-message__content">${renderMarkdown(item.content)}</div>
+        ${item.role === 'assistant' ? '<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" title="复制回复内容">📋 复制</button></div>' : ''}
+      </div>
+    `).join('')
+    : '<div class="ai-chat-empty">AI将依据你的课堂表现生成个性化学习指导。</div>';
+  return pending ? html + renderAIChatThinking() : html;
+}
+
+function renderAIGuidanceModule(section, session = null) {
+  const node = $(`aiGuidance-${section.id}`);
+  if (!node) return;
+  const config = aiGuidanceConfig(section);
+  if (!config) {
+    node.innerHTML = '';
+    return;
+  }
+  const pending = state.aiGuidancePending.has(section.id) || session?.status === 'generating';
+  const status = session?.status || (pending ? 'generating' : 'pending');
+  const rounds = Number(session?.followUpRounds || 0);
+  const canChat = status === 'ready' && rounds < 5;
+  const phaseHint = config.phase === 'plan'
+    ? '完成学习计划后，可以继续向AI追问，最后点击“完成第一部分”。'
+    : '你可以根据评价继续向AI追问；提交第四部分时会一并确认完成。';
+  node.innerHTML = `
+    <div class="ai-guidance-student-card ai-guidance-student-card--${escapeHtml(config.phase || 'plan')}">
+      <div class="item-title">
+        <span>${escapeHtml(config.title || 'AI学习指导')}</span>
+        <span class="badge">${status === 'ready' ? '已生成' : status === 'completed' ? '已完成' : status === 'skipped' ? '已跳过' : status === 'failed' ? '生成失败' : '生成中'}</span>
+      </div>
+      <p class="meta">${escapeHtml(phaseHint)}</p>
+      ${status === 'failed' ? `
+        <div class="error-message">${escapeHtml(session?.errorMessage || 'AI暂时无法生成，请重试或跳过。')}</div>
+        <div class="student-complete-actions ai-guidance-actions">
+          <button type="button" class="ai-guidance-retry-btn" data-section-id="${section.id}">重新生成</button>
+          <button type="button" class="secondary ai-guidance-skip-btn" data-section-id="${section.id}">跳过本次指导</button>
+        </div>
+      ` : `
+        <div id="aiGuidanceMessages-${section.id}" class="ai-chat-messages">${renderAIGuidanceMessages(session?.messages || [], pending)}</div>
+        ${status === 'ready' ? `
+          <div class="meta">已追问 ${rounds} / 5 轮</div>
+          <div class="ai-chat-input-row">
+            <textarea id="aiGuidanceInput-${section.id}" class="ai-chat-input" maxlength="500"
+              placeholder="可以继续询问学习计划、错题或下一步怎么做" ${canChat ? '' : 'disabled'}></textarea>
+            <button type="button" class="ai-chat-send-btn ai-guidance-send-btn" data-section-id="${section.id}" ${canChat ? '' : 'disabled'}>
+              ${rounds >= 5 ? '已达上限' : '发送'}
+            </button>
+          </div>
+          ${config.phase === 'plan' ? `
+            <div class="student-complete-actions ai-guidance-actions">
+              <button type="button" class="ai-guidance-complete-btn" data-section-id="${section.id}">完成第一部分</button>
+            </div>
+          ` : ''}
+        ` : ''}
+      `}
+    </div>
+  `;
+  bindAIGuidanceActions(section);
+  const messagesNode = $(`aiGuidanceMessages-${section.id}`);
+  if (messagesNode) messagesNode.scrollTop = messagesNode.scrollHeight;
+}
+
+function guidanceRequestBody(section) {
+  return {
+    courseId: state.selectedCourseId,
+    classId: state.selectedClassId,
+    studentId: state.student.id,
+    sectionId: section.id
+  };
+}
+
+async function loadOrGenerateAIGuidance(section, forceGenerate = false) {
+  const config = aiGuidanceConfig(section);
+  if (!config) return null;
+  if (config.phase === 'plan' && !sectionHasAttempt(section.id)) return null;
+  state.aiGuidancePending.add(section.id);
+  renderAIGuidanceModule(section, state.aiGuidanceSessions.get(section.id) || null);
+  try {
+    const params = new URLSearchParams({
+      courseId: String(state.selectedCourseId),
+      classId: String(state.selectedClassId),
+      studentId: String(state.student.id),
+      sectionId: String(section.id)
+    });
+    let session = null;
+    if (!forceGenerate) {
+      const loaded = await api(`/student/ai-guidance?${params.toString()}`);
+      session = loaded.session || null;
+    }
+    if (!session || session.status === 'failed' || forceGenerate) {
+      const generated = await api('/student/ai-guidance/generate', {
+        method: 'POST',
+        body: JSON.stringify(guidanceRequestBody(section))
+      });
+      session = generated.session || null;
+    }
+    if (session) {
+      state.aiGuidanceSessions.set(section.id, session);
+      if (session.status === 'generating') {
+        const pollCount = (state.aiGuidancePollCounts.get(section.id) || 0) + 1;
+        state.aiGuidancePollCounts.set(section.id, pollCount);
+        if (pollCount <= 30) {
+          window.setTimeout(() => {
+            const current = state.aiGuidanceSessions.get(section.id);
+            if (
+              Number(state.selectedCourseId) === Number(section.courseId) &&
+              current?.status === 'generating' &&
+              !state.aiGuidancePending.has(section.id)
+            ) {
+              void loadOrGenerateAIGuidance(section);
+            }
+          }, 1500);
+        } else {
+          state.aiGuidanceSessions.set(section.id, {
+            ...session,
+            status: 'failed',
+            errorMessage: 'AI生成等待超时，请重新生成或跳过本次指导。'
+          });
+        }
+      } else {
+        state.aiGuidancePollCounts.delete(section.id);
+      }
+    }
+    return session;
+  } catch (error) {
+    try {
+      const params = new URLSearchParams({
+        courseId: String(state.selectedCourseId),
+        classId: String(state.selectedClassId),
+        studentId: String(state.student.id),
+        sectionId: String(section.id)
+      });
+      const loaded = await api(`/student/ai-guidance?${params.toString()}`);
+      if (loaded.session) state.aiGuidanceSessions.set(section.id, loaded.session);
+    } catch {
+      state.aiGuidanceSessions.set(section.id, {
+        sectionId: section.id,
+        phase: config.phase,
+        status: 'failed',
+        errorMessage: error.message,
+        messages: []
+      });
+    }
+    return state.aiGuidanceSessions.get(section.id);
+  } finally {
+    state.aiGuidancePending.delete(section.id);
+    renderAIGuidanceModule(section, state.aiGuidanceSessions.get(section.id) || null);
+  }
+}
+
+function bindAIGuidanceActions(section) {
+  document.querySelector(`.ai-guidance-retry-btn[data-section-id="${section.id}"]`)?.addEventListener('click', () => {
+    void loadOrGenerateAIGuidance(section, true);
+  });
+  document.querySelector(`.ai-guidance-skip-btn[data-section-id="${section.id}"]`)?.addEventListener('click', () => {
+    void completeAIGuidance(section, true);
+  });
+  document.querySelector(`.ai-guidance-complete-btn[data-section-id="${section.id}"]`)?.addEventListener('click', () => {
+    void completeAIGuidance(section, false);
+  });
+  document.querySelector(`.ai-guidance-send-btn[data-section-id="${section.id}"]`)?.addEventListener('click', () => {
+    void sendAIGuidanceMessage(section);
+  });
+  $(`aiGuidanceInput-${section.id}`)?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void sendAIGuidanceMessage(section);
+    }
+  });
+}
+
+async function sendAIGuidanceMessage(section) {
+  const session = state.aiGuidanceSessions.get(section.id);
+  const input = $(`aiGuidanceInput-${section.id}`);
+  const message = input?.value.trim() || '';
+  if (!session?.id || !message || state.aiGuidancePending.has(section.id)) return;
+  if (input) input.value = '';
+  state.aiGuidancePending.add(section.id);
+  const optimistic = {
+    ...session,
+    messages: [...guidanceMessages(session.messages), { role: 'user', content: message }]
+  };
+  renderAIGuidanceModule(section, optimistic);
+  try {
+    const data = await api('/student/ai-guidance/messages', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...guidanceRequestBody(section),
+        sessionId: session.id,
+        message
+      })
+    });
+    state.aiGuidanceSessions.set(section.id, data.session);
+  } catch (error) {
+    window.showStudentAlert?.(`发送失败：${error.message}`, 'error');
+  } finally {
+    state.aiGuidancePending.delete(section.id);
+    renderAIGuidanceModule(section, state.aiGuidanceSessions.get(section.id) || session);
+  }
+}
+
+async function completeAIGuidance(section, skip) {
+  try {
+    const data = await api('/student/ai-guidance/complete', {
+      method: 'POST',
+      body: JSON.stringify({ ...guidanceRequestBody(section), skip })
+    });
+    if (data.session) state.aiGuidanceSessions.set(section.id, data.session);
+    await syncCompletedSectionsFromHistory();
+    await renderClassroom(state.student);
+  } catch (error) {
+    window.showStudentAlert?.(`操作失败：${error.message}`, 'error');
   }
 }
 
@@ -692,12 +942,15 @@ async function renderClassroom(student) {
   const visibleEndIndex = hasStarted ? stageIndex : nextIndex - 1;
   const visibleSections = visibleEndIndex >= 0 ? state.sections.slice(0, visibleEndIndex + 1) : [];
   let retryableQuizIndex = -1;
-  const reflectionCourse = course?.mode === 'reflection' || course?.templateCode === 'reflection';
-  if (reflectionCourse) {
-    retryableQuizIndex = state.sections.findIndex((section, index) => (
-      index <= stageIndex && section.type === 'quiz' && state.completedSectionIds.has(section.id)
-    ));
-  }
+  // `allowRetry` is defined by the reflection template's third section. Read
+  // the section rule directly instead of depending on a separately loaded
+  // course object, which may briefly be unavailable after a classroom refresh.
+  retryableQuizIndex = visibleSections.findIndex((section) => (
+    section.type === 'quiz'
+    && section.rules?.allowRetry === true
+    && state.completedSectionIds.has(section.id)
+    && canRetryQuizSection(section.id)
+  ));
   const sectionHtml = await Promise.all(visibleSections.map(async (section, index) => {
     if (index === retryableQuizIndex) {
       return renderRetryableQuizSection(section, index);
@@ -721,7 +974,11 @@ async function renderClassroom(student) {
         questions = filterReflectionQuestions(questions);
       }
       state.currentQuestions = questions;
-      const questionHtml = questions.length ? questions.map(renderQuestion).join('') : '<div class="empty">当前部分还没有题目。</div>';
+      const guidance = aiGuidanceConfig(section);
+      const planAnswersSaved = guidance?.phase === 'plan' && sectionHasAttempt(section.id);
+      const questionHtml = planAnswersSaved
+        ? '<div class="success-message">第一部分答题内容已保存，请完成下方的AI学习计划。</div>'
+        : (questions.length ? questions.map(renderQuestion).join('') : '<div class="empty">当前部分还没有题目。</div>');
       return `
         <section class="student-quiz-block student-stage-block student-stage-block--active">
           <div class="student-quiz-head">
@@ -731,7 +988,9 @@ async function renderClassroom(student) {
           ${section.type === 'reflection'
             ? '<div id="reflectionScoreCompare"></div>'
             : '<div id="scoreCompare"></div>'}
+          ${guidance?.phase === 'evaluation' ? `<div id="aiGuidance-${section.id}"></div>` : ''}
           <div id="questions" class="list">${questionHtml}</div>
+          ${guidance?.phase === 'plan' && planAnswersSaved ? `<div id="aiGuidance-${section.id}"></div>` : ''}
           <div id="sectionSubmitWrap"></div>
         </section>
       `;
@@ -747,6 +1006,28 @@ async function renderClassroom(student) {
       ${sectionHtml.join('')}
     </div>
   `;
+  // After the one permitted retake, keep the third part visible with the same
+  // result-card presentation as the first attempt instead of falling back to
+  // the generic completed-answer layout.
+  visibleSections
+    .filter((section) => (
+      section.type === 'quiz'
+      && section.rules?.allowRetry === true
+      && state.completedSectionIds.has(section.id)
+      && !canRetryQuizSection(section.id)
+    ))
+    .forEach((section) => {
+      const resultData = latestQuizAttemptResult(section.id);
+      if (resultData) {
+        renderQuizResult(
+          resultData,
+          true,
+          `completedQuizResult-${section.id}`,
+          '',
+          '本次重测已完成，系统仅记录第一次提交的小测分数。'
+        );
+      }
+    });
   if (retryableQuizIndex >= 0) {
     const quizSection = state.sections[retryableQuizIndex];
     const data = await api(`/sections/${quizSection.id}/questions`);
@@ -772,6 +1053,7 @@ async function renderClassroom(student) {
           <div id="quizRetryResultPage" class="quiz-result-page"></div>
           <div class="student-complete-actions">
             <button type="button" id="startQuizRetryBtn" class="student-history-jump-btn">再测一次</button>
+            <span class="student-retry-description">你可以再次完成小测来复习巩固，但系统只记录第一次提交的小测分数。</span>
           </div>
           <div id="quizRetrySubmitResult" class="section-submit-result"></div>
         `;
@@ -790,7 +1072,20 @@ async function renderClassroom(student) {
     state.currentQuestions = [];
     return;
   }
-  if (activeSection.type === 'quiz') {
+  const hasAIChatQuestion = state.currentQuestions.some((question) => question.type === 'ai_chat');
+  const activeGuidance = aiGuidanceConfig(activeSection);
+  const planAnswersSaved = activeGuidance?.phase === 'plan' && sectionHasAttempt(activeSection.id);
+  const renderSubmitAction = (label) => hasAIChatQuestion
+    ? `
+      <div class="ai-chat-submit-actions">
+        <button type="button" id="submitSectionBtn" class="ai-chat-submit-btn">${label === '提交当前部分' ? '提交当前对话' : label}</button>
+        <span class="ai-chat-submit-description">完成与AI的对话后，请点击按钮提交</span>
+      </div>
+    `
+    : `<button type="button" id="submitSectionBtn">${label}</button>`;
+  if (planAnswersSaved) {
+    $('sectionSubmitWrap').innerHTML = '<div id="sectionSubmitResult" class="section-submit-result"></div>';
+  } else if (activeSection.type === 'quiz') {
     const resultData = state.retryingQuizSectionId === activeSection.id
       ? null
       : (loadQuizResultCache() || latestQuizAttemptResult(activeSection.id));
@@ -799,6 +1094,7 @@ async function renderClassroom(student) {
       ${resultData ? `
         <div class="student-complete-actions">
           <button type="button" id="startQuizRetryBtn" class="student-history-jump-btn">再测一次</button>
+          <span class="student-retry-description">你可以再次完成小测来复习巩固，但系统只记录第一次提交的小测分数。</span>
         </div>
       ` : '<button type="button" id="submitSectionBtn">提交小测</button>'}
       <div id="sectionSubmitResult" class="section-submit-result"></div>
@@ -813,19 +1109,19 @@ async function renderClassroom(student) {
     }
   } else if (activeSection.type === 'reflection') {
     $('sectionSubmitWrap').innerHTML = `
-      <button type="button" id="submitSectionBtn">完成反思</button>
+      ${renderSubmitAction('完成反思')}
       <div id="sectionSubmitResult" class="section-submit-result"></div>
     `;
     await renderScoreCompare();
   } else if (activeSection.type === 'learning') {
     $('sectionSubmitWrap').innerHTML = `
-      <button type="button" id="submitSectionBtn">提交当前部分</button>
+      ${renderSubmitAction('提交当前部分')}
       <div id="sectionSubmitResult" class="section-submit-result"></div>
     `;
     setOpenTextEditorsLocked(false);
   } else {
     $('sectionSubmitWrap').innerHTML = `
-      <button type="button" id="submitSectionBtn">提交当前部分</button>
+      ${renderSubmitAction('提交当前部分')}
       <div id="sectionSubmitResult" class="section-submit-result"></div>
     `;
   }
@@ -838,6 +1134,9 @@ async function renderClassroom(student) {
   setupChoiceOptions();
   setupAIChatQuestions();
   setupOpenTextEditors();
+  if (activeGuidance && (activeGuidance.phase === 'evaluation' || planAnswersSaved)) {
+    void loadOrGenerateAIGuidance(activeSection);
+  }
 }
 
 async function renderCompletionState(student) {
@@ -1115,30 +1414,115 @@ function setupAIChatQuestions() {
       }
     });
   });
-  // Copy buttons on AI replies
-  document.querySelectorAll('.ai-chat-copy-btn').forEach((btn) => {
-    // Handled via onclick="copyAIChatMessage(this)" — no need to bind here
-  });
 }
 
-// Global copy handler called via onclick in renderAIChatMessages
+// 事件委托处理复制按钮点击（替代 inline onclick，兼容 ES module 动态渲染）
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('.ai-chat-copy-btn');
+  if (btn) window.copyAIChatMessage(btn);
+});
+
+// Global copy handler called via event delegation
 window.copyAIChatMessage = function(btn) {
   const msgEl = btn.closest('.ai-chat-message--assistant');
   const contentEl = msgEl?.querySelector('.ai-chat-message__content');
-  const text = contentEl?.textContent?.trim() || '';
-  navigator.clipboard.writeText(text).then(() => {
-    showCopyToast(msgEl);
-  }).catch(() => {
+  const text = contentEl ? aiChatHtmlToText(contentEl) : '';
+  if (!text) return;
+  const done = () => showCopyToast(msgEl);
+  const fallbackCopy = () => {
     const ta = document.createElement('textarea');
     ta.value = text;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
     document.body.appendChild(ta);
+    ta.focus();
     ta.select();
-    document.execCommand('copy');
+    try { document.execCommand('copy'); } catch (err) { /* 老浏览器兜底失败则静默 */ }
     document.body.removeChild(ta);
-    showCopyToast(msgEl);
-  });
+    done();
+  };
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
 };
+
+// 把渲染后的 AI 回复 HTML 还原为 markdown 格式纯文本，保留加粗/斜体/代码/代码块/标题/引用/链接/列表
+function aiChatHtmlToText(root) {
+  let text = '';
+  const walk = (node) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        text += child.textContent;
+        return;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = child.tagName;
+
+      if (tag === 'BR') { text += '\n'; return; }
+      if (tag === 'STRONG' || tag === 'B') { text += '**'; walk(child); text += '**'; return; }
+      if (tag === 'EM' || tag === 'I') { text += '*'; walk(child); text += '*'; return; }
+      if (tag === 'DEL' || tag === 'S') { text += '~~'; walk(child); text += '~~'; return; }
+      if (tag === 'CODE' && child.parentElement?.tagName !== 'PRE') { text += '`'; walk(child); text += '`'; return; }
+      if (tag === 'A') {
+        const href = child.getAttribute('href') || '';
+        text += '[';
+        walk(child);
+        text += `](${href})`;
+        return;
+      }
+      if (tag === 'PRE') {
+        const codeEl = child.querySelector('code');
+        const langMatch = (codeEl?.className || '').match(/language-(\w+)/);
+        const lang = langMatch ? langMatch[1] : '';
+        const code = codeEl?.textContent || child.textContent || '';
+        text += `\n\`\`\`${lang}\n${code}\n\`\`\`\n`;
+        return;
+      }
+
+      const headingMatch = tag.match(/^H([1-6])$/);
+      if (headingMatch) {
+        text += `\n${'#'.repeat(Number(headingMatch[1]))} `;
+        walk(child);
+        text += '\n';
+        return;
+      }
+
+      if (tag === 'BLOCKQUOTE') {
+        const saved = text; text = ''; walk(child);
+        const inner = text; text = saved;
+        text += `\n> ${inner.trim().replace(/\n/g, '\n> ')}\n`;
+        return;
+      }
+
+      if (tag === 'UL' || tag === 'OL') { text += '\n'; walk(child); return; }
+      if (tag === 'LI') {
+        const parent = child.parentElement;
+        if (parent?.tagName === 'OL') {
+          const index = Array.from(parent.children).filter((el) => el.tagName === 'LI').indexOf(child) + 1;
+          text += `${index}. `;
+        } else {
+          text += '- ';
+        }
+        walk(child);
+        text += '\n';
+        return;
+      }
+
+      if (tag === 'P' || tag === 'DIV' || tag === 'TABLE' || tag === 'TR') {
+        text += '\n';
+        walk(child);
+        text += '\n';
+        return;
+      }
+
+      walk(child);
+    });
+  };
+  walk(root);
+  return text.replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 function showCopyToast(msgEl) {
   if (!msgEl) return;
@@ -1150,9 +1534,12 @@ function showCopyToast(msgEl) {
     toast.className = 'ai-chat-copy-toast';
     toast.textContent = '已复制到剪贴板';
     toast.style.cssText = 'text-align:center;padding:8px 16px;margin-bottom:8px;background:#e8f5e9;color:#2e7d32;border-radius:10px;font-size:14px;font-weight:600;opacity:0;transition:opacity 0.3s;';
-    if (chatBox) {
-      const messagesEl = chatBox.querySelector('.ai-chat-messages');
-      messagesEl?.parentNode?.insertBefore(toast, messagesEl);
+    const messagesEl = chatBox?.querySelector('.ai-chat-messages');
+    if (messagesEl?.parentNode) {
+      messagesEl.parentNode.insertBefore(toast, messagesEl);
+    } else {
+      // 历史记录等没有 .ai-chat-box 的场景，提示挂在消息气泡内
+      msgEl.appendChild(toast);
     }
   }
   // Show then fade
@@ -1354,13 +1741,19 @@ async function renderScoreCompare() {
       <h3>1. 我的学习成果 📊</h3>
       <div class="score-compare">
         <div class="score-item">
-          <div class="label">小测得分</div>
-          <div class="value">${summary.actualScore ?? '待生成'}</div>
-        </div>
-        <div class="score-item">
           <div class="label">预测分数</div>
           <div class="value">${summary.predictedScore ?? '未填写'}</div>
         </div>
+        <div class="score-item">
+          <div class="label">小测得分</div>
+          <div class="value">${summary.actualScore ?? '待生成'}</div>
+        </div>
+        ${summary.retakeScore != null ? `
+          <div class="score-item">
+            <div class="label">重测得分</div>
+            <div class="value">${summary.retakeScore}</div>
+          </div>
+        ` : ''}
       </div>
       <div class="feedback ${guessResultText === '猜高' ? 'warning' : 'success'}">
         ${guessResultText === '-' ? '等待分数生成后展示对比结果。' : (feedbackMap[guessResultText] || `对比结果：${safeHtml(guessResultText)}`)}
@@ -1572,7 +1965,13 @@ function clearOpenTextHighlight(questionId) {
   selection.removeAllRanges();
 }
 
-function renderQuizResult(data, keepVisible = false, targetId = 'quizResultPage', resultNodeId = 'sectionSubmitResult') {
+function renderQuizResult(
+  data,
+  keepVisible = false,
+  targetId = 'quizResultPage',
+  resultNodeId = 'sectionSubmitResult',
+  resultNote = '你可以再次作答，但系统只记录第一次提交的小测分数。'
+) {
   const results = data?.results || [];
   const target = $(targetId);
   const resultNode = $(resultNodeId);
@@ -1584,7 +1983,7 @@ function renderQuizResult(data, keepVisible = false, targetId = 'quizResultPage'
         <div class="student-score-display__title">你的得分</div>
         <div class="student-score-display__value">${data?.score ?? 0}/${data?.total ?? results.length}</div>
       </div>
-      <p class="meta">你可以再次作答，但系统只记录第一次提交的小测分数。</p>
+      <p class="meta">${safeHtml(resultNote)}</p>
       ${results.map((item, index) => `
         <div class="answer-item ${item.isCorrect ? 'correct' : 'incorrect'}">
           <h4>${index + 1}. ${renderRichText(item.question || '')}
@@ -1719,6 +2118,13 @@ async function submitCurrentSection() {
         answers
       })
     });
+    const submittedSection = state.activeSection;
+    const submittedGuidance = aiGuidanceConfig(submittedSection);
+    if (submittedGuidance?.phase === 'plan') {
+      await syncCompletedSectionsFromHistory();
+      await renderClassroom(state.student);
+      return;
+    }
     if (state.activeSection.type === 'quiz') {
       const submittedSectionId = state.activeSection.id;
       state.lastQuizResult = data;

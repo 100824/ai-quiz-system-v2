@@ -17,6 +17,7 @@ const state = {
   classroom: null,
   stats: null,
   questions: [],
+  aiGuidanceConfig: null,
   boundCourseIds: [],
   currentStatsStudents: []
 };
@@ -256,8 +257,15 @@ async function loadQuestions() {
     $('questionList').innerHTML = '<div class="empty">请选择部分。</div>';
     return;
   }
-  const data = await api(`/sections/${state.selectedSectionId}/questions`);
+  const section = getSelectedSection();
+  const guidanceEligible = getSelectedCourseMode() === 'reflection' &&
+    (section?.sectionKey === 'prediction' || section?.sectionKey === 'reflection');
+  const [data, guidanceData] = await Promise.all([
+    api(`/sections/${state.selectedSectionId}/questions`),
+    guidanceEligible ? api(`/sections/${state.selectedSectionId}/ai-guidance`) : Promise.resolve(null)
+  ]);
   state.questions = data.questions || [];
+  state.aiGuidanceConfig = guidanceData?.aiGuidance || null;
   const lockedReflectionQuiz = isLockedReflectionQuizSection();
   const addQuestionBtn = $('addQuestionBtn');
   if (addQuestionBtn) {
@@ -284,11 +292,38 @@ async function loadQuestions() {
       </div>
     </div>
   `, '当前部分还没有题目。');
+  if (state.aiGuidanceConfig) {
+    $('questionList').insertAdjacentHTML('afterbegin', renderAIGuidanceSettingCard(state.aiGuidanceConfig));
+  }
   if (lockedReflectionQuiz && state.questions.length !== 5) {
     $('questionList').insertAdjacentHTML('afterbegin', `
       <div class="warning-message">反思模式第三部分应固定为 5 道题，当前为 ${state.questions.length} 道。请检查默认题目数据。</div>
     `);
   }
+}
+
+function renderAIGuidanceSettingCard(config) {
+  const course = state.courses.find((item) => item.id === state.selectedCourseId);
+  const objectiveMissing = !String(course?.learningObjective || '').trim();
+  const disabled = config.locked || (objectiveMissing && !config.enabled);
+  const stateText = config.enabled ? '已开启' : '未开启';
+  return `
+    <div class="item ai-guidance-setting-card ${config.enabled ? 'is-enabled' : ''}">
+      <div class="item-title">
+        <span>${escapeHtml(config.title || 'AI学习指导')}</span>
+        <span class="badge">${stateText}</span>
+      </div>
+      <div class="meta">反思模板固定能力 · 不计入题目数量，不能新增、删除或移动。</div>
+      ${objectiveMissing ? '<div class="warning-message">请先在“课堂设置”中填写学习目标，才能开启。</div>' : ''}
+      ${config.locked ? '<div class="meta">该部分已有学生答题，开关已锁定。</div>' : ''}
+      <div class="question-actions">
+        <button type="button" data-action="toggle-ai-guidance" data-id="${state.selectedSectionId}"
+          data-enabled="${config.enabled ? '1' : '0'}" ${disabled ? 'disabled' : ''}>
+          ${config.enabled ? '关闭AI学习指导' : '开启AI学习指导'}
+        </button>
+      </div>
+    </div>
+  `;
 }
 
 function questionTypeLabel(type) {
@@ -963,6 +998,7 @@ function renderStats() {
       ${partCompletionHtml}
     </div>
     ${detailedStatsHtml}
+    ${renderAIGuidanceStats(stats.aiGuidanceStats)}
     <div class="stats-section">
       <h4>学生完成情况</h4>
       <p style="color:#5a85a8; margin-bottom: 12px;">教师评分会作为最终实际分优先展示，并同步到学生历史页。</p>
@@ -1043,6 +1079,28 @@ function renderDistributionList(entries, emptyText) {
   `;
 }
 
+function renderAIGuidanceStats(stats) {
+  const phases = [
+    ['AI学习计划', stats?.plan],
+    ['AI学习评价与反思', stats?.evaluation]
+  ].filter(([, item]) => item?.enabled);
+  if (!phases.length) return '';
+  return `
+    <div class="stats-section">
+      <h4>AI学习指导</h4>
+      <div class="stat-grid ai-guidance-stat-grid">
+        ${phases.map(([title, item]) => `
+          <div class="stat-card">
+            <span>${escapeHtml(title)}</span>
+            <strong>${item.completedCount || 0} 人完成</strong>
+            <small>已生成 ${item.generatedCount || 0} · 跳过 ${item.skippedCount || 0} · 失败 ${item.failedCount || 0} · 追问 ${item.followUpRounds || 0} 轮</small>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function formatScoreSourceLabel(value) {
   if (value === 'teacher') return '教师评分';
   if (value === 'quiz') return '小测';
@@ -1083,12 +1141,40 @@ function closeStudentDetailModal() {
   $('studentDetailContent').innerHTML = '';
 }
 
+// 学生作答预览卡片：点击展开全文
+function renderAnswerCard(contentHtml, previewClass = '') {
+  const isChat = previewClass.split(/\s+/).includes('answer-card--chat');
+  return `
+    <div class="answer-card ${previewClass}">
+      <div class="answer-card-preview">
+        ${contentHtml}
+      </div>
+      <div class="answer-card-fade"></div>
+      <div class="answer-card-hint">${isChat ? '点击查看完整对话' : '点击查看全文'}</div>
+    </div>
+    <div class="answer-card-full" style="display:none">${contentHtml}</div>
+  `;
+}
+
+function showFullAnswerModal(cardEl) {
+  const fullContent = cardEl.nextElementSibling?.innerHTML;
+  if (!fullContent) return;
+  $('fullAnswerBody').innerHTML = fullContent;
+  $('fullAnswerModal').classList.remove('hidden');
+}
+
+function closeFullAnswerModal() {
+  $('fullAnswerModal').classList.add('hidden');
+  $('fullAnswerBody').innerHTML = '';
+}
+
 function renderStudentDetail(detail) {
   const summary = detail || {};
   const actualSource = formatScoreSourceLabel(summary.actualScoreSource);
   const sections = Array.isArray(summary.sections) ? summary.sections : [];
   const courseMode = getStatsCourseMode();
   const isReflection = courseMode === 'reflection';
+  const guidanceSessions = Array.isArray(summary.aiGuidance) ? summary.aiGuidance : [];
 
   // 检查是否有任何答题记录
   const hasAnyAttempts = sections.some((section) =>
@@ -1118,7 +1204,7 @@ function renderStudentDetail(detail) {
                     <span class="badge">AI 对话</span>
                   </div>
                   <div class="meta">题型：AI 对话题 · 轮次：${(question.chatMessages || []).filter((item) => item.role === 'user').length}</div>
-                  ${renderChatMessages(question.chatMessages || [])}
+                  ${renderAnswerCard(renderChatMessages(question.chatMessages || []), 'answer-card--chat')}
                 </div>
               ` : question.questionType === 'open_text' ? `
                 <div class="student-detail-question student-detail-question--open-text">
@@ -1127,10 +1213,7 @@ function renderStudentDetail(detail) {
                     <span class="badge">颜色标注开放题</span>
                   </div>
                   <div class="meta">已保留学生提交时的颜色标注</div>
-                  <div class="annotated-answer-block">
-                    <strong>学生作答</strong>
-                    <div class="annotated-answer-content">${renderAnnotatedAnswer(question.answer)}</div>
-                  </div>
+                  ${renderAnswerCard(`<strong>学生作答</strong><div class="annotated-answer-content">${renderAnnotatedAnswer(question.answer)}</div>`, 'answer-card--open-text')}
                   ${question.explanation ? `<div class="open-text-reference"><strong>参考解析</strong><div>${renderDetailText(question.explanation)}</div></div>` : ''}
                 </div>
               ` : `
@@ -1169,6 +1252,35 @@ function renderStudentDetail(detail) {
       ${summary.teacherScoreNote ? `<p><strong>评分备注：</strong>${renderDetailText(summary.teacherScoreNote)}</p>` : ''}
       <p><strong>提交时间：</strong>${escapeHtml(summary.startedAt || '-')} ${summary.completedAt ? `｜完成时间：${escapeHtml(summary.completedAt)}` : ''}</p>
     </div>
+    ${guidanceSessions.length ? `
+      <div class="stats-section">
+        <h4>AI学习指导</h4>
+        <div class="ai-guidance-detail-grid">
+          ${guidanceSessions.map((session) => {
+            const messages = Array.isArray(session.messages) ? session.messages : [];
+            const initial = messages.find((item) => item.role === 'assistant');
+            const full = renderChatMessages(messages);
+            return `
+              <div class="student-detail-question student-detail-question--correct">
+                <div class="item-title">
+                  <span>${escapeHtml(session.title || 'AI学习指导')}</span>
+                  <span class="badge">${escapeHtml(session.status || '-')}</span>
+                </div>
+                <div class="meta">学生追问 ${session.followUpRounds || 0} 轮</div>
+                <div class="answer-card answer-card--chat">
+                  <div class="answer-card-preview">
+                    ${initial ? renderMarkdown(initial.content) : '<div class="empty">暂无生成内容</div>'}
+                  </div>
+                  <div class="answer-card-fade"></div>
+                  <div class="answer-card-hint">点击查看完整指导与对话</div>
+                </div>
+                <div class="answer-card-full" style="display:none">${full}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    ` : ''}
     ${hasAnyAttempts ? sectionHtml : '<div class="stats-section"><p class="empty">该学生尚未作答任何内容</p></div>'}
   `;
   openStudentDetailModal();
@@ -1275,6 +1387,22 @@ function openCreateCourseModal() {
 
 function closeCreateCourseModal() {
   $('createCourseModal').classList.add('hidden');
+}
+
+function openCourseSettingsModal() {
+  const course = state.courses.find((item) => item.id === state.selectedCourseId);
+  if (!course) {
+    alert('请先在“部分与题目”中选择课堂');
+    return;
+  }
+  $('courseSettingsTitle').textContent = `当前课堂：${course.title}`;
+  $('courseSettingsDescription').value = course.description || '';
+  $('courseSettingsLearningObjective').value = course.learningObjective || '';
+  $('courseSettingsModal').classList.remove('hidden');
+}
+
+function closeCourseSettingsModal() {
+  $('courseSettingsModal').classList.add('hidden');
 }
 
 function renderDeleteCourseList() {
@@ -1692,6 +1820,7 @@ function bindForms() {
         body: JSON.stringify({
           title: $('courseTitle').value,
           description: $('courseDescription').value,
+          learningObjective: $('courseLearningObjective').value,
           templateCode: $('courseTemplate').value
         })
       });
@@ -1708,6 +1837,29 @@ function bindForms() {
   $on('cancelCreateCourseBtn', 'click', closeCreateCourseModal);
   $on('createCourseModal', 'click', (event) => {
     if (event.target === $('createCourseModal')) closeCreateCourseModal();
+  });
+  $on('courseSettingsBtn', 'click', openCourseSettingsModal);
+  $on('cancelCourseSettingsBtn', 'click', closeCourseSettingsModal);
+  $on('courseSettingsModal', 'click', (event) => {
+    if (event.target === $('courseSettingsModal')) closeCourseSettingsModal();
+  });
+  $on('courseSettingsForm', 'submit', async (event) => {
+    event.preventDefault();
+    if (!state.selectedCourseId) return;
+    try {
+      await api(`/courses/${state.selectedCourseId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          description: $('courseSettingsDescription').value,
+          learningObjective: $('courseSettingsLearningObjective').value
+        })
+      });
+      closeCourseSettingsModal();
+      await loadAll();
+      alert('课堂设置已保存');
+    } catch (error) {
+      alert(`保存课堂设置失败：${error.message}`);
+    }
   });
   $on('deleteSelectedCourseBtn', 'click', openDeleteCourseModal);
   $on('cancelDeleteCourseBtn', 'click', closeDeleteCourseModal);
@@ -1787,6 +1939,23 @@ function bindForms() {
     if (event.target === $('studentDetailModal')) closeStudentDetailModal();
   });
 
+  // 作答预览卡片：点击展开全文
+  $on('studentDetailModal', 'click', (event) => {
+    const card = event.target.closest('.answer-card');
+    if (card) showFullAnswerModal(card);
+  });
+  $on('closeFullAnswer', 'click', closeFullAnswerModal);
+  $on('fullAnswerModal', 'click', (event) => {
+    if (event.target === $('fullAnswerModal')) closeFullAnswerModal();
+  });
+  // Escape 键关闭全文弹窗
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) {
+      const fullModal = $('fullAnswerModal');
+      if (fullModal && !fullModal.classList.contains('hidden')) closeFullAnswerModal();
+    }
+  });
+
   $on('classroomForm', 'submit', async (event) => {
     event.preventDefault();
     try {
@@ -1836,6 +2005,8 @@ function bindForms() {
     addStudentModal: closeAddStudentModal,
     questionModal: closeQuestionModal,
     studentDetailModal: closeStudentDetailModal,
+    fullAnswerModal: closeFullAnswerModal,
+    courseSettingsModal: closeCourseSettingsModal,
   };
   document.body.addEventListener('click', (event) => {
     const closeBtn = event.target.closest('.modal-close-x');
@@ -1918,6 +2089,19 @@ function bindClicks() {
         await loadQuestions();
       } catch (error) {
         alert(`停用题目失败：${error.message}`);
+      }
+    }
+    if (action === 'toggle-ai-guidance') {
+      const nextEnabled = button.dataset.enabled !== '1';
+      try {
+        await api(`/sections/${id}/ai-guidance`, {
+          method: 'PUT',
+          body: JSON.stringify({ enabled: nextEnabled })
+        });
+        await loadSections();
+        alert(nextEnabled ? 'AI学习指导已开启' : 'AI学习指导已关闭');
+      } catch (error) {
+        alert(`修改AI学习指导失败：${error.message}`);
       }
     }
     if (action === 'save-score') {

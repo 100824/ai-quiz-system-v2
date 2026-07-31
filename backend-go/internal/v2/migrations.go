@@ -2,6 +2,7 @@ package v2
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
 
@@ -57,6 +58,7 @@ func InitDB(db *sql.DB) error {
 			title TEXT NOT NULL,
 			mode TEXT NOT NULL,
 			description TEXT NOT NULL DEFAULT '',
+			learning_objective TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'draft',
 			deleted_at TEXT,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -171,6 +173,33 @@ func InitDB(db *sql.DB) error {
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS ai_guidance_sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			submission_id INTEGER NOT NULL,
+			section_id INTEGER NOT NULL,
+			phase TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			input_snapshot_json TEXT NOT NULL DEFAULT '{}',
+			model TEXT NOT NULL DEFAULT 'deepseek-v4-flash',
+			error_message TEXT NOT NULL DEFAULT '',
+			generated_at TEXT,
+			completed_at TEXT,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(submission_id, section_id),
+			FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE,
+			FOREIGN KEY (section_id) REFERENCES course_sections(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS ai_guidance_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id INTEGER NOT NULL,
+			message_order INTEGER NOT NULL,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(session_id, message_order),
+			FOREIGN KEY (session_id) REFERENCES ai_guidance_sessions(id) ON DELETE CASCADE
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -186,13 +215,76 @@ func InitDB(db *sql.DB) error {
 	if err := ensureColumn(db, "score_records", "teacher_score_updated_at", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "courses", "learning_objective", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_ai_guidance_sessions_status ON ai_guidance_sessions(status)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_ai_guidance_messages_session ON ai_guidance_messages(session_id, message_order)`); err != nil {
+		return err
+	}
 	if err := dedupeCourseTitles(db); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_title_active ON courses(title) WHERE deleted_at IS NULL`); err != nil {
 		return err
 	}
-	return seedTemplates(db)
+	if err := seedTemplates(db); err != nil {
+		return err
+	}
+	return ensureAIGuidanceRuleDefaults(db)
+}
+
+func ensureAIGuidanceRuleDefaults(db *sql.DB) error {
+	rows, err := db.Query(`
+		SELECT cs.id, cs.section_key, cs.rules_json
+		FROM course_sections cs
+		JOIN courses c ON c.id = cs.course_id
+		WHERE c.mode = 'reflection' AND cs.section_key IN ('prediction', 'reflection')
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type update struct {
+		id    int
+		rules string
+	}
+	var updates []update
+	for rows.Next() {
+		var id int
+		var sectionKey, raw string
+		if err := rows.Scan(&id, &sectionKey, &raw); err != nil {
+			return err
+		}
+		rules := map[string]interface{}{}
+		if err := json.Unmarshal([]byte(raw), &rules); err != nil {
+			rules = map[string]interface{}{}
+		}
+		if _, exists := rules["aiGuidance"]; exists {
+			continue
+		}
+		phase, title := "plan", "AI学习计划"
+		if sectionKey == "reflection" {
+			phase, title = "evaluation", "AI学习评价与反思"
+		}
+		rules["aiGuidance"] = map[string]interface{}{"enabled": false, "phase": phase, "title": title}
+		encoded, _ := json.Marshal(rules)
+		updates = append(updates, update{id: id, rules: string(encoded)})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range updates {
+		if _, err := db.Exec(`UPDATE course_sections SET rules_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, item.rules, item.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func dedupeCourseTitles(db *sql.DB) error {
@@ -276,10 +368,10 @@ func seedTemplates(db *sql.DB) error {
 			description: "基于预测、学习、测验、反思的模板规则生成课程。",
 			config: `{
 				"sections":[
-					{"key":"prediction","title":"第一部分：课前预测","type":"prediction","fixed":true,"rules":{"fixedPredictionQuestion":true,"teacherCanAddQuestions":true}},
+					{"key":"prediction","title":"第一部分：课前预测","type":"prediction","fixed":true,"rules":{"fixedPredictionQuestion":true,"teacherCanAddQuestions":true,"aiGuidance":{"enabled":false,"phase":"plan","title":"AI学习计划"}}},
 					{"key":"learning","title":"第二部分：学习与思考","type":"learning","fixed":true,"rules":{"teacherCanAddQuestions":true}},
 					{"key":"quiz","title":"第三部分：小测验","type":"quiz","fixed":true,"rules":{"fixedQuestionCount":5,"allowRetry":true,"recordScoreAttempt":1}},
-					{"key":"reflection","title":"第四部分：反思总结","type":"reflection","fixed":true,"rules":{"showScoreCompare":true,"teacherCanAddQuestions":true}}
+					{"key":"reflection","title":"第四部分：反思总结","type":"reflection","fixed":true,"rules":{"showScoreCompare":true,"teacherCanAddQuestions":true,"aiGuidance":{"enabled":false,"phase":"evaluation","title":"AI学习评价与反思"}}}
 				],
 				"scoreRules":{"predictionSection":"prediction","actualScoreSection":"quiz","actualScoreAttempt":1}
 			}`,
