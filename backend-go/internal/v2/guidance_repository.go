@@ -17,6 +17,7 @@ type guidanceContext struct {
 	Section      Section
 	Config       AIGuidanceConfig
 	SubmissionID int
+	ClassID      int
 	StudentID    int
 }
 
@@ -128,6 +129,7 @@ func (r *Repository) guidanceContext(courseID, classID, studentID, sectionID int
 	context.Section.Fixed = fixed == 1
 	context.Section.Rules = json.RawMessage(rulesRaw)
 	context.Config = parseAIGuidanceConfig(context.Section)
+	context.ClassID = classID
 	context.StudentID = studentID
 	if context.Course.Mode != "reflection" || !context.Config.Enabled ||
 		(context.Config.Phase != "plan" && context.Config.Phase != "evaluation") {
@@ -420,6 +422,46 @@ func (r *Repository) CompleteReflectionGuidanceTx(tx *sql.Tx, submissionID, sect
 	return err
 }
 
+func (r *Repository) ResetEvaluationGuidanceAfterRetakeTx(tx *sql.Tx, submissionID, courseID int) error {
+	var sectionID int
+	var rulesRaw string
+	err := tx.QueryRow(`
+		SELECT id, rules_json
+		FROM course_sections
+		WHERE course_id = ? AND section_key = 'reflection' AND enabled = 1
+		LIMIT 1
+	`, courseID).Scan(&sectionID, &rulesRaw)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	config := parseAIGuidanceConfig(Section{
+		SectionKey: "reflection",
+		Rules:      json.RawMessage(rulesRaw),
+	})
+	if !config.Enabled || config.Phase != "evaluation" {
+		return nil
+	}
+	var reflectionAttemptCount int
+	if err := tx.QueryRow(`
+		SELECT COUNT(1)
+		FROM answer_attempts
+		WHERE submission_id = ? AND section_id = ?
+	`, submissionID, sectionID).Scan(&reflectionAttemptCount); err != nil {
+		return err
+	}
+	if reflectionAttemptCount > 0 {
+		return nil
+	}
+	_, err = tx.Exec(`
+		DELETE FROM ai_guidance_sessions
+		WHERE submission_id = ? AND section_id = ?
+	`, submissionID, sectionID)
+	return err
+}
+
 func (r *Repository) BuildAIGuidanceSnapshot(context guidanceContext) (string, error) {
 	if context.SubmissionID <= 0 {
 		return "", errors.New("未找到学生的当前课堂答题记录")
@@ -440,8 +482,19 @@ func (r *Repository) BuildAIGuidanceSnapshot(context guidanceContext) (string, e
 		"previousCourses":   history,
 	}
 	if context.Config.Phase == "evaluation" {
-		snapshot["officialQuizScore"] = scoreOrMissing(detail.QuizScore)
-		snapshot["quizQuestions"] = firstQuizQuestionSnapshot(detail)
+		scoreSummary, err := r.GetScoreSummary(context.Course.ID, context.ClassID, context.StudentID)
+		if err != nil {
+			return "", err
+		}
+		snapshot["officialQuizScore"] = scoreOrMissing(scoreSummary.QuizScore)
+		snapshot["quizQuestions"] = quizAttemptQuestionSnapshot(detail, 1)
+		snapshot["retakeTaken"] = scoreSummary.RetakeScore != nil
+		snapshot["retakeQuizScore"] = scoreOrMissing(scoreSummary.RetakeScore)
+		if scoreSummary.RetakeScore != nil {
+			snapshot["retakeQuizQuestions"] = quizAttemptQuestionSnapshot(detail, 2)
+		} else {
+			snapshot["retakeQuizQuestions"] = "未记录"
+		}
 		snapshot["currentCourseOtherAnswers"] = currentCourseAnswerSnapshot(detail)
 	}
 	encoded, err := json.Marshal(snapshot)
@@ -492,13 +545,23 @@ func (r *Repository) guidanceHistory(context guidanceContext) ([]map[string]inte
 	return items, rows.Err()
 }
 
-func firstQuizQuestionSnapshot(detail StudentDetail) []map[string]interface{} {
+func quizAttemptQuestionSnapshot(detail StudentDetail, attemptNo int) []map[string]interface{} {
 	items := []map[string]interface{}{}
 	for _, section := range detail.Sections {
-		if section.Type != "quiz" || len(section.Attempts) == 0 {
+		if section.Type != "quiz" {
 			continue
 		}
-		for _, question := range section.Attempts[0].Questions {
+		var target *StudentDetailAttempt
+		for index := range section.Attempts {
+			if section.Attempts[index].AttemptNo == attemptNo {
+				target = &section.Attempts[index]
+				break
+			}
+		}
+		if target == nil {
+			continue
+		}
+		for _, question := range target.Questions {
 			items = append(items, map[string]interface{}{
 				"question":      question.QuestionText,
 				"studentAnswer": missingText(question.Answer),

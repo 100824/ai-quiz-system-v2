@@ -147,7 +147,8 @@ func TestReflectionAIGuidanceDefaultsAndCompletion(t *testing.T) {
 	for _, question := range quizQuestions {
 		quizAnswers[stringID(question.ID)] = json.RawMessage(`"A"`)
 	}
-	if _, err := repo.SubmitSection(courseID, classID, studentID, sections[2].ID, quizAnswers); err != nil {
+	firstQuizResult, err := repo.SubmitSection(courseID, classID, studentID, sections[2].ID, quizAnswers)
+	if err != nil {
 		t.Fatal(err)
 	}
 	evaluationContext, err := repo.guidanceContext(courseID, classID, studentID, sections[3].ID)
@@ -167,6 +168,50 @@ func TestReflectionAIGuidanceDefaultsAndCompletion(t *testing.T) {
 	}
 	if answers, ok := evaluationPayload["currentCourseOtherAnswers"].([]interface{}); !ok || len(answers) == 0 {
 		t.Fatalf("evaluation snapshot should contain current course answers: %s", evaluationSnapshot)
+	}
+	evaluationSession, reused, err := repo.StartAIGuidanceGeneration(evaluationContext, evaluationSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused {
+		t.Fatal("first evaluation generation should not reuse a session")
+	}
+	if _, err := repo.CompleteAIGuidanceGeneration(evaluationSession.ID, "第一次小测评价"); err != nil {
+		t.Fatal(err)
+	}
+	retakeAnswers := map[string]json.RawMessage{}
+	for _, question := range quizQuestions {
+		retakeAnswers[stringID(question.ID)] = json.RawMessage(`"B"`)
+	}
+	retakeResult, err := repo.SubmitSection(courseID, classID, studentID, sections[2].ID, retakeAnswers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.loadAIGuidanceSessionBySubmission(submissionID, sections[3].ID); err != sql.ErrNoRows {
+		t.Fatalf("retake should invalidate the unsubmitted evaluation session, got %v", err)
+	}
+	evaluationSnapshot, err = repo.BuildAIGuidanceSnapshot(evaluationContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(evaluationSnapshot), &evaluationPayload); err != nil {
+		t.Fatal(err)
+	}
+	if evaluationPayload["retakeTaken"] != true || evaluationPayload["retakeQuizScore"] != float64(retakeResult["score"].(int)) {
+		t.Fatalf("evaluation snapshot should include retake score: %s", evaluationSnapshot)
+	}
+	if quizItems, ok := evaluationPayload["retakeQuizQuestions"].([]interface{}); !ok || len(quizItems) != 5 {
+		t.Fatalf("evaluation snapshot should contain the five retake quiz details: %s", evaluationSnapshot)
+	}
+	scoreSummary, err := repo.GetScoreSummary(courseID, classID, studentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scoreSummary.ActualScore == nil || *scoreSummary.ActualScore != firstQuizResult["score"].(int) {
+		t.Fatalf("retake must not overwrite the official first score: %#v", scoreSummary)
+	}
+	if scoreSummary.RetakeScore == nil || *scoreSummary.RetakeScore != retakeResult["score"].(int) {
+		t.Fatalf("retake score was not stored separately: %#v", scoreSummary)
 	}
 
 	handler := NewHandler(repo)

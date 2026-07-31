@@ -910,6 +910,11 @@ func (r *Repository) SubmitSection(courseID, classID, studentID, sectionID int, 
 	if err := updateScoreRecordTx(tx, submissionID, section.Type, answers, score); err != nil {
 		return nil, err
 	}
+	if lockedReflectionQuiz && attemptNo == 2 {
+		if err := r.ResetEvaluationGuidanceAfterRetakeTx(tx, submissionID, courseID); err != nil {
+			return nil, err
+		}
+	}
 	if section.Type == "reflection" {
 		if err := r.CompleteReflectionGuidanceTx(tx, submissionID, sectionID); err != nil {
 			return nil, err

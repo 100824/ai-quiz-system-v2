@@ -24,6 +24,7 @@ const state = {
   aiGuidanceSessions: new Map(),
   aiGuidancePending: new Set(),
   aiGuidancePollCounts: new Map(),
+  aiGuidanceContextVersion: 0,
   retryingQuizSectionId: null,
   pollTimer: null,
   completedSectionIds: new Set(),
@@ -137,6 +138,12 @@ function latestQuizAttemptResult(sectionId) {
 
 async function startQuizRetake(sectionId) {
   state.retryingQuizSectionId = Number(sectionId);
+  const evaluationSection = state.sections.find((section) => aiGuidanceConfig(section)?.phase === 'evaluation');
+  if (evaluationSection) {
+    state.aiGuidanceContextVersion += 1;
+    state.aiGuidancePending.delete(evaluationSection.id);
+    state.aiGuidancePollCounts.delete(evaluationSection.id);
+  }
   await renderClassroom(state.student);
 }
 
@@ -439,6 +446,7 @@ async function loadClassScopedData() {
   state.aiGuidanceSessions = new Map();
   state.aiGuidancePending = new Set();
   state.aiGuidancePollCounts = new Map();
+  state.aiGuidanceContextVersion += 1;
   state.completedSectionIds = new Set();
   $('studentNameInput').value = '';
   renderStudentNameList();
@@ -679,6 +687,9 @@ async function loadOrGenerateAIGuidance(section, forceGenerate = false) {
   const config = aiGuidanceConfig(section);
   if (!config) return null;
   if (config.phase === 'plan' && !sectionHasAttempt(section.id)) return null;
+  if (config.phase === 'evaluation' && state.retryingQuizSectionId) return null;
+  const requestVersion = state.aiGuidanceContextVersion;
+  const requestIsCurrent = () => requestVersion === state.aiGuidanceContextVersion;
   state.aiGuidancePending.add(section.id);
   renderAIGuidanceModule(section, state.aiGuidanceSessions.get(section.id) || null);
   try {
@@ -700,7 +711,7 @@ async function loadOrGenerateAIGuidance(section, forceGenerate = false) {
       });
       session = generated.session || null;
     }
-    if (session) {
+    if (session && requestIsCurrent()) {
       state.aiGuidanceSessions.set(section.id, session);
       if (session.status === 'generating') {
         const pollCount = (state.aiGuidancePollCounts.get(section.id) || 0) + 1;
@@ -729,6 +740,7 @@ async function loadOrGenerateAIGuidance(section, forceGenerate = false) {
     }
     return session;
   } catch (error) {
+    if (!requestIsCurrent()) return state.aiGuidanceSessions.get(section.id) || null;
     try {
       const params = new URLSearchParams({
         courseId: String(state.selectedCourseId),
@@ -749,8 +761,10 @@ async function loadOrGenerateAIGuidance(section, forceGenerate = false) {
     }
     return state.aiGuidanceSessions.get(section.id);
   } finally {
-    state.aiGuidancePending.delete(section.id);
-    renderAIGuidanceModule(section, state.aiGuidanceSessions.get(section.id) || null);
+    if (requestIsCurrent()) {
+      state.aiGuidancePending.delete(section.id);
+      renderAIGuidanceModule(section, state.aiGuidanceSessions.get(section.id) || null);
+    }
   }
 }
 
