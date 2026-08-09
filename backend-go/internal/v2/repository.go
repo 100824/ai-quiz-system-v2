@@ -1162,6 +1162,27 @@ func intFromNull(value sql.NullInt64) *int {
 	return &v
 }
 
+// Retakes are stored as separate quiz attempts. Keep the first attempt score
+// in score_records and expose the optional second attempt independently.
+func (r *Repository) retakeScore(submissionID int) (*int, error) {
+	var score sql.NullInt64
+	err := r.db.QueryRow(`
+		SELECT aa.score
+		FROM answer_attempts aa
+		JOIN course_sections cs ON cs.id = aa.section_id
+		WHERE aa.submission_id = ? AND cs.type = 'quiz' AND aa.attempt_no > 1 AND aa.score IS NOT NULL
+		ORDER BY aa.attempt_no DESC, aa.id DESC
+		LIMIT 1
+	`, submissionID).Scan(&score)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return intFromNull(score), nil
+}
+
 func firstValidScore(predicted, quiz, teacher sql.NullInt64) *int {
 	switch {
 	case teacher.Valid:
@@ -1331,19 +1352,10 @@ func (r *Repository) GetScoreSummary(courseID, classID, studentID int) (ScoreSum
 		return item, err
 	}
 	item.PredictedScore, item.QuizScore, item.TeacherScore, item.ActualScore, item.ActualScoreSource, item.GuessResult, item.GuessResultText, item.TeacherScoreNote = teacherScoreRows(predicted, quizScore, teacherScore, actualSource, teacherNote)
-	var retakeScore sql.NullInt64
-	err = r.db.QueryRow(`
-		SELECT aa.score
-		FROM answer_attempts aa
-		JOIN course_sections cs ON cs.id = aa.section_id
-		WHERE aa.submission_id = ? AND cs.type = 'quiz' AND aa.attempt_no > 1 AND aa.score IS NOT NULL
-		ORDER BY aa.attempt_no DESC, aa.id DESC
-		LIMIT 1
-	`, submissionID).Scan(&retakeScore)
-	if err != nil && err != sql.ErrNoRows {
+	item.RetakeScore, err = r.retakeScore(submissionID)
+	if err != nil {
 		return item, err
 	}
-	item.RetakeScore = intFromNull(retakeScore)
 	return item, nil
 }
 
@@ -1744,6 +1756,10 @@ func (r *Repository) fillCourseStats(stats *StatsSummary, courseID, classID int)
 			submission.source,
 			submission.teacherNote,
 		)
+		item.RetakeScore, err = r.retakeScore(submission.id)
+		if err != nil {
+			return err
+		}
 		if item.QuizScore == nil && submission.quizScore.Valid {
 			v := int(submission.quizScore.Int64)
 			item.QuizScore = &v
@@ -1866,6 +1882,10 @@ func (r *Repository) ListStudentHistory(classID, studentID int) ([]StudentHistor
 			actualSource,
 			teacherNote,
 		)
+		item.RetakeScore, err = r.retakeScore(item.SubmissionID)
+		if err != nil {
+			return nil, err
+		}
 		sections, err := r.ListSections(item.CourseID)
 		if err != nil {
 			return nil, err
@@ -1939,6 +1959,10 @@ func (r *Repository) GetStudentDetail(submissionID int) (StudentDetail, error) {
 		actualSource,
 		teacherNote,
 	)
+	item.RetakeScore, err = r.retakeScore(submissionID)
+	if err != nil {
+		return item, err
+	}
 
 	sections, err := r.ListSections(item.CourseID)
 	if err != nil {

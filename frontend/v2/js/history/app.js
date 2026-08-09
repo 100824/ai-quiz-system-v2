@@ -1,4 +1,4 @@
-import { api, apiBase } from '../core/api.js';
+import { api, apiBase } from '../core/api.js?v=2026080202';
 import { renderAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
 import { renderRichText } from '../core/rich-text.js?v=2026071101';
@@ -153,7 +153,7 @@ function renderScoreCompare(records) {
     }
 
     return `
-      <div class="history-score-row" data-submission-id="${r.submissionId || ''}" role="button" tabindex="0" aria-expanded="false">
+      <div class="history-score-row${r.retakeScore !== null && r.retakeScore !== undefined ? ' history-score-row--with-retake' : ''}" data-submission-id="${r.submissionId || ''}" role="button" tabindex="0" aria-expanded="false">
         <div class="history-score-course">
           ${escapeHtml(r.courseTitle)}
           ${hasCompare ? '' : `<span class="history-score-course__meta">${escapeHtml(courseModeLabel(r.mode))}</span>`}
@@ -166,6 +166,12 @@ function renderScoreCompare(records) {
           <span class="history-score-label">实际 · ${scoreSourceLabel(r.actualScoreSource)}</span>
           <strong>${hasCompare ? `${a} 分` : '&nbsp;'}</strong>
         </div>
+        ${r.retakeScore !== null && r.retakeScore !== undefined ? `
+          <div class="history-score-actual history-score-retake">
+            <span class="history-score-label">重测</span>
+            <strong>${Number(r.retakeScore)} 分</strong>
+          </div>
+        ` : ''}
         <div class="history-score-diff ${diffClass}">${diffText}</div>
         <div class="history-score-toggle">▼</div>
       </div>
@@ -295,6 +301,9 @@ function renderStudentDetail(detail) {
       <p>
         <strong>预测分：</strong>${scoreText(detail.predictedScore, '未填写')}
         ｜ <strong>小测分：</strong>${scoreText(detail.quizScore, '待评分')}
+        ${detail.retakeScore !== null && detail.retakeScore !== undefined
+          ? `｜ <strong>重测分：</strong>${scoreText(detail.retakeScore, '')}`
+          : ''}
         ｜ <strong>教师评分：</strong>${scoreText(detail.teacherScore, '未评分')}
         ｜ <strong>实际分：</strong>${scoreText(detail.actualScore, '待评分')}（${scoreSourceLabel(detail.actualScoreSource)}）
       </p>

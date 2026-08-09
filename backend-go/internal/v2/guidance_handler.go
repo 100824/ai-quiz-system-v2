@@ -106,7 +106,10 @@ func (h *Handler) HandleGenerateStudentAIGuidance(w http.ResponseWriter, r *http
 	if guidanceContext.SubmissionID > 0 {
 		existing, loadErr := h.repo.loadAIGuidanceSessionBySubmission(guidanceContext.SubmissionID, body.SectionID)
 		if loadErr == nil && (existing.Status == "ready" || existing.Status == "completed" || existing.Status == "skipped") {
-			h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"session": existing, "reused": true}})
+			if err := beginAIStream(w); err != nil {
+				return
+			}
+			_ = writeAIStreamEvent(w, "done", map[string]interface{}{"session": existing, "reused": true})
 			return
 		}
 	}
@@ -121,27 +124,34 @@ func (h *Handler) HandleGenerateStudentAIGuidance(w http.ResponseWriter, r *http
 		return
 	}
 	if reused {
-		h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"session": session, "reused": true}})
+		if err := beginAIStream(w); err != nil {
+			return
+		}
+		_ = writeAIStreamEvent(w, "done", map[string]interface{}{"session": session, "reused": true})
+		return
+	}
+	if err := beginAIStream(w); err != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	answer, err := h.callDeepSeekWithSystem(ctx, guidanceSystemPrompt(guidanceContext.Config.Phase), []AIChatMessage{{
+	answer, err := h.streamDeepSeek(ctx, guidanceSystemPrompt(guidanceContext.Config.Phase), []AIChatMessage{{
 		Role:    "user",
 		Content: "请严格依据下面的平台数据完成任务。字段为“未记录”时不得推测或补造。\n\n" + snapshot,
-	}})
+	}}, func(delta string) error {
+		return writeAIStreamEvent(w, "delta", map[string]string{"content": delta})
+	})
 	if err != nil {
 		_ = h.repo.FailAIGuidanceGeneration(session.ID, err)
-		failed, _ := h.repo.loadAIGuidanceSessionBySubmission(guidanceContext.SubmissionID, body.SectionID)
-		h.writeJSON(w, http.StatusBadGateway, APIResponse{Success: false, Error: err.Error(), Data: map[string]interface{}{"session": failed}})
+		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
 	}
 	session, err = h.repo.CompleteAIGuidanceGeneration(session.ID, answer)
 	if err != nil {
-		h.writeError(w, err)
+		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
 	}
-	h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"session": session, "reused": false}})
+	_ = writeAIStreamEvent(w, "done", map[string]interface{}{"session": session, "reused": false})
 }
 
 func (h *Handler) HandleStudentAIGuidanceMessage(w http.ResponseWriter, r *http.Request) {
@@ -194,19 +204,24 @@ func (h *Handler) HandleStudentAIGuidanceMessage(w http.ResponseWriter, r *http.
 	}
 	history = append(history, AIChatMessage{Role: "user", Content: body.Message})
 	system := guidanceSystemPrompt(session.Phase) + "\n\n以下是生成初始指导时冻结的平台数据，请保持上下文一致：\n" + snapshot
+	if err := beginAIStream(w); err != nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	answer, err := h.callDeepSeekWithSystem(ctx, system, history)
+	answer, err := h.streamDeepSeek(ctx, system, history, func(delta string) error {
+		return writeAIStreamEvent(w, "delta", map[string]string{"content": delta})
+	})
 	if err != nil {
-		h.writeJSON(w, http.StatusBadGateway, APIResponse{Success: false, Error: err.Error()})
+		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
 	}
 	session, err = h.repo.AppendAIGuidanceExchange(session.ID, body.Message, answer)
 	if err != nil {
-		h.writeError(w, err)
+		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
 	}
-	h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"session": session, "maxRounds": 5}})
+	_ = writeAIStreamEvent(w, "done", map[string]interface{}{"session": session, "maxRounds": 5})
 }
 
 func (h *Handler) HandleCompleteStudentAIGuidance(w http.ResponseWriter, r *http.Request) {

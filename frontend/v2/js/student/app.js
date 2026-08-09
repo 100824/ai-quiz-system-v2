@@ -1,4 +1,4 @@
-import { api, apiBase } from '../core/api.js';
+import { api, streamApi } from '../core/api.js?v=2026080202';
 import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { countAnnotatedHighlights, renderAnnotatedAnswer, sanitizeAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
@@ -33,7 +33,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const OTHER_OPTION_LABEL = '其它';
-const AI_CHAT_GUIDE_TEXT = '请在下方对话框中与AI讨论本次任务的问题，请至少完成一轮对话。';
+const AI_CHAT_GUIDE_TEXT = '请在上方对话框中与AI讨论本次任务的问题，请至少完成一轮对话';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -187,6 +187,37 @@ function setStoredAIChatMessages(questionId, messages) {
   state.aiChatMessages.set(aiChatKey(questionId), normalizeChatMessages(messages));
 }
 
+function createStreamingRenderer(render) {
+  let frame = null;
+  let latest = '';
+  const requestFrame = (callback) => {
+    if (typeof window.requestAnimationFrame === 'function') {
+      return { id: window.requestAnimationFrame(callback), type: 'raf' };
+    }
+    return { id: window.setTimeout(callback, 0), type: 'timeout' };
+  };
+  const cancelFrame = (pending) => {
+    if (!pending) return;
+    if (pending.type === 'raf') window.cancelAnimationFrame(pending.id);
+    else window.clearTimeout(pending.id);
+  };
+  const schedule = (value) => {
+    latest = String(value ?? '');
+    if (frame) return;
+    frame = requestFrame(() => {
+      frame = null;
+      render(latest);
+    });
+  };
+  schedule.flush = (value) => {
+    latest = String(value ?? '');
+    cancelFrame(frame);
+    frame = null;
+    render(latest);
+  };
+  return schedule;
+}
+
 function countAIRounds(messages = []) {
   return normalizeChatMessages(messages).filter((item) => item.role === 'user').length;
 }
@@ -207,10 +238,10 @@ function renderAIChatThinking() {
   `;
 }
 
-function renderAIChatMessages(messages = [], pending = false) {
+function renderAIChatMessages(messages = [], pending = false, streamingContent = null) {
   const normalized = normalizeChatMessages(messages);
   if (!normalized.length) {
-    return `<div class="ai-chat-empty">${AI_CHAT_GUIDE_TEXT}</div>`;
+    return '';
   }
   const rendered = normalized.map((item) => `
     <div class="ai-chat-message ai-chat-message--${item.role === 'user' ? 'user' : 'assistant'}">
@@ -219,6 +250,13 @@ function renderAIChatMessages(messages = [], pending = false) {
       ${item.role === 'assistant' ? `<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" title="复制回复内容">📋 复制</button></div>` : ''}
     </div>
   `).join('');
+  if (streamingContent !== null) {
+    return `${rendered}
+      <div class="ai-chat-message ai-chat-message--assistant ai-chat-message--streaming">
+        <div class="ai-chat-message__role">AI 学习助手</div>
+        <div class="ai-chat-message__content">${renderMarkdown(streamingContent)}</div>
+      </div>`;
+  }
   return pending ? rendered + renderAIChatThinking() : rendered;
 }
 
@@ -324,7 +362,7 @@ function renderCompletedSection(section, index) {
   const isFinalizedRetryQuiz = section.type === 'quiz'
     && section.rules?.allowRetry === true;
   return `
-    <section class="student-quiz-block student-stage-block student-stage-block--done">
+    <section class="student-quiz-block student-stage-block student-stage-block--done" data-section-id="${section.id}">
       <div class="student-quiz-head">
         <span class="student-quiz-tag">已完成</span>
         <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
@@ -343,7 +381,7 @@ function renderCompletedSection(section, index) {
 
 function renderRetryableQuizSection(section, index) {
   return `
-    <section class="student-quiz-block student-stage-block student-stage-block--active student-stage-block--retry">
+    <section class="student-quiz-block student-stage-block student-stage-block--active student-stage-block--retry" data-section-id="${section.id}">
       <div class="student-quiz-head">
         <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
       </div>
@@ -355,7 +393,7 @@ function renderRetryableQuizSection(section, index) {
 
 function renderWaitingSection(section, index) {
   return `
-    <section class="student-quiz-block student-stage-block student-stage-block--waiting">
+    <section class="student-quiz-block student-stage-block student-stage-block--waiting" data-section-id="${section.id}">
       <div class="student-quiz-head">
         <span class="student-quiz-tag">等待开启</span>
         <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
@@ -413,8 +451,35 @@ function loadQuizResultCache() {
   }
 }
 
+function studentHistoryUrl(student = state.student) {
+  const className = $('classSelect')?.selectedOptions?.[0]?.textContent?.trim() || '';
+  const params = new URLSearchParams({
+    classId: String(state.selectedClassId || ''),
+    studentId: String(student?.id || ''),
+    className,
+    studentName: student?.name || ''
+  });
+  return `./student-history.html?${params.toString()}`;
+}
+
+function updateStudentHeader(student = null) {
+  const actions = $('studentHeaderActions');
+  const identity = $('studentIdentity');
+  const historyLink = $('studentHistoryLink');
+  if (!actions || !identity || !historyLink) return;
+  if (!student) {
+    actions.classList.add('hidden');
+    identity.textContent = '';
+    historyLink.href = './student-history.html';
+    return;
+  }
+  const className = $('classSelect')?.selectedOptions?.[0]?.textContent?.trim() || '未知班级';
+  identity.textContent = `${className} · ${student.name}`;
+  historyLink.href = studentHistoryUrl(student);
+  actions.classList.remove('hidden');
+}
+
 async function loadPage() {
-  $('apiBase').textContent = apiBase();
   const classData = await api('/classes');
   state.classes = classData.classes || [];
   renderClassSelector();
@@ -430,6 +495,7 @@ function renderClassSelector() {
 
 async function loadClassScopedData() {
   stopPolling();
+  updateStudentHeader();
   updateTopBlackboard('');
   state.selectedClassId = Number($('classSelect').value || 0);
   state.student = null;
@@ -607,7 +673,7 @@ function guidanceMessages(messages = []) {
     .filter((item) => item.content && (item.role === 'user' || item.role === 'assistant'));
 }
 
-function renderAIGuidanceMessages(messages = [], pending = false) {
+function renderAIGuidanceMessages(messages = [], pending = false, streamingContent = null) {
   const normalized = guidanceMessages(messages);
   const html = normalized.length
     ? normalized.map((item) => `
@@ -618,10 +684,17 @@ function renderAIGuidanceMessages(messages = [], pending = false) {
       </div>
     `).join('')
     : '<div class="ai-chat-empty">AI将依据你的课堂表现生成个性化学习指导。</div>';
+  if (streamingContent !== null) {
+    return `${html}
+      <div class="ai-chat-message ai-chat-message--assistant ai-chat-message--streaming">
+        <div class="ai-chat-message__role">AI 学习指导助手</div>
+        <div class="ai-chat-message__content">${renderMarkdown(streamingContent)}</div>
+      </div>`;
+  }
   return pending ? html + renderAIChatThinking() : html;
 }
 
-function renderAIGuidanceModule(section, session = null) {
+function renderAIGuidanceModule(section, session = null, streamingContent = null) {
   const node = $(`aiGuidance-${section.id}`);
   if (!node) return;
   const config = aiGuidanceConfig(section);
@@ -632,7 +705,7 @@ function renderAIGuidanceModule(section, session = null) {
   const pending = state.aiGuidancePending.has(section.id) || session?.status === 'generating';
   const status = session?.status || (pending ? 'generating' : 'pending');
   const rounds = Number(session?.followUpRounds || 0);
-  const canChat = status === 'ready' && rounds < 5;
+  const canChat = status === 'ready' && rounds < 5 && !pending;
   const phaseHint = config.phase === 'plan'
     ? '完成学习计划后，可以继续向AI追问，最后点击“完成第一部分”。'
     : '你可以根据评价继续向AI追问；提交第四部分时会一并确认完成。';
@@ -650,7 +723,7 @@ function renderAIGuidanceModule(section, session = null) {
           <button type="button" class="secondary ai-guidance-skip-btn" data-section-id="${section.id}">跳过本次指导</button>
         </div>
       ` : `
-        <div id="aiGuidanceMessages-${section.id}" class="ai-chat-messages">${renderAIGuidanceMessages(session?.messages || [], pending)}</div>
+        <div id="aiGuidanceMessages-${section.id}" class="ai-chat-messages">${renderAIGuidanceMessages(session?.messages || [], pending, streamingContent)}</div>
         ${status === 'ready' ? `
           <div class="meta">已追问 ${rounds} / 5 轮</div>
           <div class="ai-chat-input-row">
@@ -705,10 +778,27 @@ async function loadOrGenerateAIGuidance(section, forceGenerate = false) {
       session = loaded.session || null;
     }
     if (!session || session.status === 'failed' || forceGenerate) {
-      const generated = await api('/student/ai-guidance/generate', {
+      let streamingText = '';
+      const streamingSession = {
+        ...(session || {}),
+        sectionId: section.id,
+        phase: config.phase,
+        status: 'generating',
+        messages: []
+      };
+      const streamRender = createStreamingRenderer((value) => {
+        if (requestIsCurrent()) renderAIGuidanceModule(section, streamingSession, value);
+      });
+      const generated = await streamApi('/student/ai-guidance/generate', {
         method: 'POST',
         body: JSON.stringify(guidanceRequestBody(section))
+      }, {
+        onDelta: (delta) => {
+          streamingText += delta;
+          streamRender(streamingText);
+        }
       });
+      streamRender.flush(streamingText);
       session = generated.session || null;
     }
     if (session && requestIsCurrent()) {
@@ -801,15 +891,25 @@ async function sendAIGuidanceMessage(section) {
     messages: [...guidanceMessages(session.messages), { role: 'user', content: message }]
   };
   renderAIGuidanceModule(section, optimistic);
+  let streamingText = '';
+  const streamRender = createStreamingRenderer((value) => {
+    renderAIGuidanceModule(section, optimistic, value);
+  });
   try {
-    const data = await api('/student/ai-guidance/messages', {
+    const data = await streamApi('/student/ai-guidance/messages', {
       method: 'POST',
       body: JSON.stringify({
         ...guidanceRequestBody(section),
         sessionId: session.id,
         message
       })
+    }, {
+      onDelta: (delta) => {
+        streamingText += delta;
+        streamRender(streamingText);
+      }
     });
+    streamRender.flush(streamingText);
     state.aiGuidanceSessions.set(section.id, data.session);
   } catch (error) {
     window.showStudentAlert?.(`发送失败：${error.message}`, 'error');
@@ -851,6 +951,7 @@ async function enterClassroom() {
     const selected = await pickActiveCourse();
     state.selectedCourseId = selected?.course?.id || state.courses[0].id;
     await loadSelectedCourseContext();
+    updateStudentHeader(student);
     resetStudentViewport();
     $('loginPage').classList.add('hidden');
     $('surveyPage').classList.remove('hidden');
@@ -896,6 +997,7 @@ async function refreshClassroomState(options = {}) {
   try {
     const previousCourseId = state.selectedCourseId;
     const previousStage = Number(state.classroom?.stageId || 0);
+    const previousActiveSectionId = state.activeSection?.id || null;
     const previousBlackboard = normalizeBlackboard(state.classroom?.blackboard);
     const preferred = await pickActiveCourse();
     if (preferred?.course?.id && preferred.course.id !== state.selectedCourseId) {
@@ -905,8 +1007,17 @@ async function refreshClassroomState(options = {}) {
     const nextStage = Number(state.classroom?.stageId || 0);
     const nextBlackboard = normalizeBlackboard(state.classroom?.blackboard);
     const courseChanged = previousCourseId !== state.selectedCourseId;
-    if (options.forceRender || courseChanged || previousStage !== nextStage) {
+    const nextStageIndex = sectionIndexById(nextStage);
+    const nextActiveIndex = nextOpenedIncompleteSectionIndex(nextStageIndex);
+    const nextActiveSectionId = nextActiveIndex >= 0 ? state.sections[nextActiveIndex]?.id || null : null;
+    const activeSectionChanged = previousActiveSectionId !== nextActiveSectionId;
+    if (options.forceRender || courseChanged || activeSectionChanged) {
       await renderClassroom(state.student);
+    } else if (previousStage !== nextStage) {
+      // Keep the unfinished section and its in-progress answers in place when
+      // the teacher opens later sections ahead of the student.
+      updateTopBlackboard(nextStage > 0 ? nextBlackboard : '');
+      renderProgress();
     } else if (previousBlackboard !== nextBlackboard) {
       // Blackboard edits must not re-render the question area and discard a
       // student's in-progress choices. The preparation screen is the only
@@ -926,6 +1037,7 @@ async function refreshClassroomState(options = {}) {
 }
 
 async function renderClassroom(student) {
+  const previousActiveSectionId = state.activeSection?.id || null;
   const blackboard = normalizeBlackboard(state.classroom?.blackboard);
   const stageID = Number(state.classroom?.stageId || 0);
   // 准备环节在页面主体内展示黑板，stage > 0 后切换到顶部固定栏
@@ -933,6 +1045,7 @@ async function renderClassroom(student) {
   const allCompleted = state.sections.length > 0
     && state.sections.every((item) => state.completedSectionIds.has(item.id));
   if (allCompleted) {
+    state.activeSection = null;
     await renderCompletionState(student);
     return;
   }
@@ -994,7 +1107,7 @@ async function renderClassroom(student) {
         ? '<div class="success-message">第一部分答题内容已保存，请完成下方的AI学习计划。</div>'
         : (questions.length ? questions.map(renderQuestion).join('') : '<div class="empty">当前部分还没有题目。</div>');
       return `
-        <section class="student-quiz-block student-stage-block student-stage-block--active">
+        <section class="student-quiz-block student-stage-block student-stage-block--active" data-section-id="${section.id}">
           <div class="student-quiz-head">
             <span class="student-quiz-tag">${safeHtml(sectionTag(section, index))}</span>
             <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
@@ -1020,6 +1133,7 @@ async function renderClassroom(student) {
       ${sectionHtml.join('')}
     </div>
   `;
+  scrollToNewActiveSection(previousActiveSectionId, state.activeSection?.id || null);
   // After the one permitted retake, keep the third part visible with the same
   // result-card presentation as the first attempt instead of falling back to
   // the generic completed-answer layout.
@@ -1189,6 +1303,14 @@ async function renderCompletionState(student) {
   renderProgress();
 }
 
+function scrollToNewActiveSection(previousSectionId, currentSectionId) {
+  if (!currentSectionId || previousSectionId === currentSectionId) return;
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector(`[data-section-id="${currentSectionId}"]`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 function renderProgress() {
   const stageID = Number(state.classroom?.stageId || 0);
   const stageIndex = sectionIndexById(stageID);
@@ -1272,8 +1394,8 @@ function renderQuestion(question) {
   return `
     <div class="item">
       <div class="item-title student-question-title">${renderRichText(question.title)}</div>
-      ${question.description ? `<div class="meta">${renderRichText(question.description)}</div>` : ''}
-      <div class="meta">${safeHtml(questionTypeLabel(question.type))}</div>
+      ${question.description ? `<div class="meta student-question-description">${renderRichText(question.description)}</div>` : ''}
+      <div class="meta student-question-type">${safeHtml(questionTypeLabel(question.type))}</div>
       ${question.type === 'open_text'
         ? renderOpenTextQuestion(question)
         : answerHtml || '<div class="empty">AI 对话题暂无内容，请先发送学习相关问题。</div>'}
@@ -1288,6 +1410,7 @@ function renderAIChatQuestion(question) {
   const pending = state.aiChatPending.get(aiChatKey(question.id)) === true;
   setStoredAIChatMessages(question.id, messages);
   const presets = Array.isArray(question.rules?.presetQuestions) ? question.rules.presetQuestions : [];
+  const messagesHiddenClass = messages.length || pending ? '' : ' hidden';
   const presetHtml = presets.length && !reachedLimit ? `
     <div class="ai-chat-presets">
       ${presets.map((p, i) => `<button type="button" class="ai-chat-preset-btn" data-question-id="${question.id}" data-preset-index="${i}">${safeHtml(p)}</button>`).join('')}
@@ -1296,10 +1419,10 @@ function renderAIChatQuestion(question) {
   return `
     <div class="item ai-chat-question" data-question-id="${question.id}">
       <div class="item-title student-question-title">${renderRichText(normalizeAIChatTitle(question.title))}</div>
-      ${question.description ? `<div class="meta">${renderRichText(question.description)}</div>` : ''}
-      <div class="meta">AI 对话题 · 已对话 <span id="ai-chat-rounds-${question.id}">${rounds}</span> / 5 轮</div>
+      ${question.description ? `<div class="meta student-question-description">${renderRichText(question.description)}</div>` : ''}
+      <div class="meta student-question-type">AI 对话题 · 已对话 <span id="ai-chat-rounds-${question.id}">${rounds}</span> / 5 轮</div>
       <div class="ai-chat-box">
-        <div id="ai-chat-messages-${question.id}" class="ai-chat-messages">${renderAIChatMessages(messages, pending)}</div>
+        <div id="ai-chat-messages-${question.id}" class="ai-chat-messages${messagesHiddenClass}">${renderAIChatMessages(messages, pending)}</div>
         ${presetHtml}
         <div class="ai-chat-input-row">
           <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="请输入学习相关的问题，也可以点击上方预设问题" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
@@ -1373,12 +1496,13 @@ function setupChoiceOptions(scope = document) {
   syncChoiceOptionState(scope);
 }
 
-function updateAIChatView(questionId, messages, pending = false) {
+function updateAIChatView(questionId, messages, pending = false, streamingContent = null) {
   const normalized = normalizeChatMessages(messages);
   state.aiChatPending.set(aiChatKey(questionId), Boolean(pending));
   const messagesNode = $(`ai-chat-messages-${questionId}`);
   if (messagesNode) {
-    messagesNode.innerHTML = renderAIChatMessages(normalized, pending);
+    messagesNode.classList.toggle('hidden', normalized.length === 0 && !pending && !streamingContent);
+    messagesNode.innerHTML = renderAIChatMessages(normalized, pending, streamingContent);
     messagesNode.scrollTop = messagesNode.scrollHeight;
   }
   const rounds = countAIRounds(normalized);
@@ -1535,7 +1659,13 @@ function aiChatHtmlToText(root) {
     });
   };
   walk(root);
-  return text.replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return text
+    .replace(/ /g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .join('\n')
+    .trim();
 }
 
 function showCopyToast(msgEl) {
@@ -1588,8 +1718,12 @@ async function sendAIChatMessage(questionId) {
   updateAIChatView(questionId, optimisticMessages, true);
   if (statusNode) statusNode.textContent = 'AI 正在思考，请稍等...';
   if (input) input.value = '';
+  let streamingText = '';
+  const streamRender = createStreamingRenderer((value) => {
+    updateAIChatView(questionId, optimisticMessages, true, value);
+  });
   try {
-    const data = await api('/student/ai-chat', {
+    const data = await streamApi('/student/ai-chat', {
       method: 'POST',
       body: JSON.stringify({
         courseId: state.selectedCourseId,
@@ -1600,7 +1734,14 @@ async function sendAIChatMessage(questionId) {
         message,
         messages
       })
+    }, {
+      onDelta: (delta) => {
+        streamingText += delta;
+        if (statusNode) statusNode.textContent = 'AI 正在输出...';
+        streamRender(streamingText);
+      }
     });
+    streamRender.flush(streamingText);
     const nextMessages = normalizeChatMessages(data.messages || []);
     setStoredAIChatMessages(questionId, nextMessages);
     updateAIChatView(questionId, nextMessages, false);
@@ -1657,7 +1798,7 @@ function renderOpenTextQuestion(question) {
   const annotationEnabled = true;
   return `
     <div class="student-open-question">
-      <p class="student-quiz-text">${annotationEnabled ? '请写下你的思考，并按要求用颜色标注重点、疑惑和错误观点。' : '请写下你的思考，完整表达自己的想法。'}</p>
+      <p class="student-quiz-text student-answer-instruction">${annotationEnabled ? '请写下你的思考，并按要求用颜色标注重点、疑惑和错误观点。' : '请写下你的思考，完整表达自己的想法。'}</p>
       ${annotationEnabled ? `
         <div class="student-part2-toolbar">
           <button type="button" class="btn student-mark-btn student-mark-btn--green" onclick="applyOpenTextHighlight('green', ${question.id})">绿色：关键事实或观点</button>
@@ -2218,13 +2359,7 @@ function openHistoryPage() {
     showLoginError(error.message);
     return;
   }
-  const params = new URLSearchParams({
-    classId: String(state.selectedClassId),
-    studentId: String(student.id),
-    className: $('classSelect').selectedOptions[0]?.textContent || '',
-    studentName: student.name
-  });
-  window.location.href = `./student-history.html?${params.toString()}`;
+  window.location.href = studentHistoryUrl(student);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -2248,7 +2383,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
     $('enterBtn').addEventListener('click', enterClassroom);
-    $('historyBtn').addEventListener('click', openHistoryPage);
+    $('historyBtn')?.addEventListener('click', openHistoryPage);
   } catch (error) {
     $('classroom').innerHTML = `<div class="panel">${safeHtml(error.message)}</div>`;
   }

@@ -180,6 +180,7 @@ type StudentStats struct {
 	CompletedParts    int    `json:"completedParts"`
 	PredictedScore    *int   `json:"predictedScore,omitempty"`
 	QuizScore         *int   `json:"quizScore,omitempty"`
+	RetakeScore       *int   `json:"retakeScore,omitempty"`
 	TeacherScore      *int   `json:"teacherScore,omitempty"`
 	ActualScore       *int   `json:"actualScore,omitempty"`
 	ActualScoreSource string `json:"actualScoreSource,omitempty"`
@@ -234,6 +235,7 @@ type StudentHistoryRecord struct {
 	StatusText        string              `json:"statusText"`
 	PredictedScore    *int                `json:"predictedScore,omitempty"`
 	QuizScore         *int                `json:"quizScore,omitempty"`
+	RetakeScore       *int                `json:"retakeScore,omitempty"`
 	TeacherScore      *int                `json:"teacherScore,omitempty"`
 	ActualScore       *int                `json:"actualScore,omitempty"`
 	ActualScoreSource string              `json:"actualScoreSource"`
@@ -272,6 +274,7 @@ type StudentDetail struct {
 	StatusText        string                 `json:"statusText"`
 	PredictedScore    *int                   `json:"predictedScore,omitempty"`
 	QuizScore         *int                   `json:"quizScore,omitempty"`
+	RetakeScore       *int                   `json:"retakeScore,omitempty"`
 	TeacherScore      *int                   `json:"teacherScore,omitempty"`
 	ActualScore       *int                   `json:"actualScore,omitempty"`
 	ActualScoreSource string                 `json:"actualScoreSource"`

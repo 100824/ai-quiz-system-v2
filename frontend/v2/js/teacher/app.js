@@ -1,4 +1,4 @@
-import { api, apiBase } from '../core/api.js';
+import { api, apiBase } from '../core/api.js?v=2026080202';
 import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { renderAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
@@ -1005,14 +1005,14 @@ function renderStats() {
       ${(() => {
         const courseMode = getStatsCourseMode();
         const isReflection = courseMode === 'reflection';
-        const colSpan = isReflection ? 10 : 8;
+        const colSpan = isReflection ? 11 : 8;
 
         const headerRow = `
           <tr>
             <th>班级</th>
             <th>姓名</th>
             <th>完成状态</th>
-            ${isReflection ? '<th>预测分</th><th>小测分</th>' : ''}
+            ${isReflection ? '<th>预测分</th><th>小测分</th><th>重测分</th>' : ''}
             <th>教师评分</th>
             <th>实际分</th>
             <th>实际来源</th>
@@ -1029,7 +1029,7 @@ function renderStats() {
                 <td>${escapeHtml(s.className)}</td>
                 <td>${escapeHtml(s.studentName)}</td>
                 <td>${escapeHtml(s.statusText)}</td>
-                ${isReflection ? `<td>${s.predictedScore ?? '未填写'}</td><td>${s.quizScore ?? '待评分'}</td>` : ''}
+                ${isReflection ? `<td>${s.predictedScore ?? '未填写'}</td><td>${s.quizScore ?? '待评分'}</td><td>${s.retakeScore ?? ''}</td>` : ''}
                 <td>
                   <input id="teacher-score-${index}" type="number" min="0" max="5" step="1" value="${s.teacherScore ?? ''}" class="stats-score-input" placeholder="可留空">
                 </td>
@@ -1246,6 +1246,7 @@ function renderStudentDetail(detail) {
       ${isReflection ? `
         <p><strong>预测分：</strong>${summary.predictedScore ?? '未填写'}</p>
         <p><strong>小测分：</strong>${summary.quizScore ?? '待评分'}</p>
+        <p><strong>重测分：</strong>${summary.retakeScore ?? ''}</p>
       ` : ''}
       <p><strong>教师评分：</strong>${summary.teacherScore ?? '未评分'}</p>
       <p><strong>实际分：</strong>${summary.actualScore ?? '待评分'}（${escapeHtml(actualSource)}）</p>

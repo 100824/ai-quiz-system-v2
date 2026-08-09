@@ -1,6 +1,7 @@
 package v2
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -20,10 +21,16 @@ import (
 type Handler struct {
 	repo          *Repository
 	guidanceLocks sync.Map
+	deepSeekURL   string
+	httpClient    *http.Client
 }
 
 func NewHandler(repo *Repository) *Handler {
-	return &Handler{repo: repo}
+	return &Handler{
+		repo:        repo,
+		deepSeekURL: "https://api.deepseek.com/chat/completions",
+		httpClient:  http.DefaultClient,
+	}
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
@@ -79,6 +86,31 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, payload APIRespon
 
 func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	h.writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: err.Error()})
+}
+
+func writeAIStreamEvent(w http.ResponseWriter, event string, payload interface{}) error {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return fmt.Errorf("当前响应不支持 SSE")
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
+}
+
+func beginAIStream(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	return writeAIStreamEvent(w, "start", map[string]interface{}{})
 }
 
 func pathInt(r *http.Request, name string) (int, error) {
@@ -540,37 +572,35 @@ func (h *Handler) HandleStudentAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 	history = append(history, AIChatMessage{Role: "user", Content: userMessage})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
-	defer cancel()
-	answer, err := h.callDeepSeek(ctx, history)
-	if err != nil {
-		h.writeJSON(w, http.StatusBadGateway, APIResponse{Success: false, Error: err.Error()})
+	if err := beginAIStream(w); err != nil {
 		return
 	}
-	history = append(history, AIChatMessage{Role: "assistant", Content: answer})
-	h.writeJSON(w, http.StatusOK, APIResponse{
-		Success: true,
-		Data: map[string]interface{}{
-			"assistantMessage": answer,
-			"messages":         history,
-			"rounds":           rounds + 1,
-			"maxRounds":        5,
-		},
-	})
-}
-
-func (h *Handler) callDeepSeek(ctx context.Context, history []AIChatMessage) (string, error) {
-	return h.callDeepSeekWithSystem(ctx, strings.Join([]string{
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	answer, err := h.streamDeepSeek(ctx, strings.Join([]string{
 		"你是小学五年级人工智能课堂里的学习助手。",
 		"只回答学习相关问题，包括人工智能、课堂知识、学习方法、作业思路和学科知识。",
 		"如果学生询问与学习无关、娱乐八卦、违法危险、隐私攻击等内容，请礼貌拒绝，并引导回学习问题。",
 		"每次回复必须控制在1000个中文字符以内。",
 		"解释要符合小学五年级学生理解水平：用短句、例子和鼓励性的语气，不要堆砌术语。",
 		"不要直接代写完整作业答案，可以给思路、步骤、提示和检查方法。",
-	}, "\n"), history)
+	}, "\n"), history, func(delta string) error {
+		return writeAIStreamEvent(w, "delta", map[string]string{"content": delta})
+	})
+	if err != nil {
+		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
+		return
+	}
+	history = append(history, AIChatMessage{Role: "assistant", Content: answer})
+	_ = writeAIStreamEvent(w, "done", map[string]interface{}{
+		"assistantMessage": answer,
+		"messages":         history,
+		"rounds":           rounds + 1,
+		"maxRounds":        5,
+	})
 }
 
-func (h *Handler) callDeepSeekWithSystem(ctx context.Context, systemPrompt string, history []AIChatMessage) (string, error) {
+func (h *Handler) streamDeepSeek(ctx context.Context, systemPrompt string, history []AIChatMessage, onDelta func(string) error) (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_KEY"))
 	if apiKey == "" {
 		apiKey = strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
@@ -584,7 +614,8 @@ func (h *Handler) callDeepSeekWithSystem(ctx context.Context, systemPrompt strin
 	payload := map[string]interface{}{
 		"model":       "deepseek-v4-flash",
 		"messages":    messages,
-		"stream":      false,
+		"stream":      true,
+		"thinking":    map[string]string{"type": "disabled"},
 		"temperature": 0.3,
 		"max_tokens":  1200,
 	}
@@ -592,20 +623,28 @@ func (h *Handler) callDeepSeekWithSystem(ctx context.Context, systemPrompt strin
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.deepseek.com/chat/completions", bytes.NewReader(body))
+	deepSeekURL := h.deepSeekURL
+	if deepSeekURL == "" {
+		deepSeekURL = "https://api.deepseek.com/chat/completions"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, deepSeekURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := h.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("调用 DeepSeek 失败：%w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		var errBody struct {
 			Error struct {
 				Message string `json:"message"`
@@ -616,22 +655,54 @@ func (h *Handler) callDeepSeekWithSystem(ctx context.Context, systemPrompt strin
 		}
 		return "", fmt.Errorf("DeepSeek 返回错误状态：%s", resp.Status)
 	}
-	var result struct {
-		Choices []struct {
-			Message AIChatMessage `json:"message"`
-		} `json:"choices"`
+	var answer strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 1<<20)
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" {
+			continue
+		}
+		if data == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return "", fmt.Errorf("解析 DeepSeek 流式响应失败：%w", err)
+		}
+		for _, choice := range chunk.Choices {
+			// Reasoning content is intentionally ignored; only the final answer is shown.
+			delta := choice.Delta.Content
+			if delta == "" {
+				continue
+			}
+			answer.WriteString(delta)
+			if onDelta != nil {
+				if err := onDelta(delta); err != nil {
+					return "", fmt.Errorf("写入流式响应失败：%w", err)
+				}
+			}
+		}
 	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("解析 DeepSeek 响应失败：%w", err)
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("读取 DeepSeek 流式响应失败：%w", err)
 	}
-	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("DeepSeek 没有返回回答")
-	}
-	answer := strings.TrimSpace(result.Choices[0].Message.Content)
-	if answer == "" {
+	answerText := strings.TrimSpace(answer.String())
+	if answerText == "" {
 		return "", fmt.Errorf("DeepSeek 返回空回答")
 	}
-	return truncateRunes(answer, 1000), nil
+	return answerText, nil
 }
 
 func sanitizeAIChatMessages(messages []AIChatMessage) []AIChatMessage {
@@ -642,7 +713,12 @@ func sanitizeAIChatMessages(messages []AIChatMessage) []AIChatMessage {
 		if content == "" || (role != "user" && role != "assistant") {
 			continue
 		}
-		result = append(result, AIChatMessage{Role: role, Content: truncateRunes(content, 1000)})
+		// User messages are input and remain bounded; assistant messages are model
+		// output and must remain complete for display and subsequent context.
+		if role == "user" {
+			content = truncateRunes(content, 500)
+		}
+		result = append(result, AIChatMessage{Role: role, Content: content})
 		if len(result) >= 10 {
 			break
 		}
@@ -937,7 +1013,7 @@ func statsRows(stats StatsSummary) [][]string {
 			[]string{"AI学习指导", "AI学习评价追问轮次", strconv.Itoa(stats.AIGuidanceStats.Evaluation.FollowUpRounds)},
 		)
 	}
-	rows = append(rows, []string{"学生明细", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "评分备注"})
+	rows = append(rows, []string{"学生明细", "班级", "姓名", "完成状态", "预测分", "小测分", "重测分", "教师评分", "实际分", "实际分来源", "猜测结果", "评分备注"})
 	for _, student := range stats.Students {
 		rows = append(rows, []string{
 			"学生明细",
@@ -946,6 +1022,7 @@ func statsRows(stats StatsSummary) [][]string {
 			student.StatusText,
 			intPtrText(student.PredictedScore, "未填写"),
 			intPtrText(student.QuizScore, "待评分"),
+			intPtrText(student.RetakeScore, ""),
 			intPtrText(student.TeacherScore, ""),
 			intPtrText(student.ActualScore, "待评分"),
 			student.ActualScoreSource,
@@ -967,6 +1044,7 @@ type exportSummaryRow struct {
 	StatusText       string
 	PredictedScore   string
 	QuizScore        string
+	RetakeScore      string
 	TeacherScore     string
 	ActualScore      string
 	ActualSourceText string
@@ -1013,7 +1091,7 @@ func (h *Handler) writeAllStatsWorkbook(wb *excelize.File, stats StatsSummary) e
 	}
 
 	summaryRows := [][]string{{
-		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "AI学习计划状态", "计划追问轮次", "AI学习评价状态", "评价追问轮次", "评分备注", "最后提交时间",
+		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "重测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "AI学习计划状态", "计划追问轮次", "AI学习评价状态", "评价追问轮次", "评分备注", "最后提交时间",
 	}}
 	questionRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "显示给", "提交时间",
@@ -1057,7 +1135,7 @@ func (h *Handler) writeAllStatsWorkbook(wb *excelize.File, stats StatsSummary) e
 
 func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) ([][]string, [][]string, [][]string, [][]string, error) {
 	summaryRows := [][]string{{
-		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "AI学习计划状态", "计划追问轮次", "AI学习评价状态", "评价追问轮次", "评分备注", "最后提交时间",
+		"课程", "班级", "姓名", "完成状态", "预测分", "小测分", "重测分", "教师评分", "实际分", "实际分来源", "猜测结果", "答题题数", "AI对话轮次", "AI学习计划状态", "计划追问轮次", "AI学习评价状态", "评价追问轮次", "评分备注", "最后提交时间",
 	}}
 	questionRows := [][]string{{
 		"课程", "班级", "姓名", "部分", "提交次数", "题目序号", "题目", "题型", "学生答案", "正确答案", "是否正确", "分值", "解析", "显示给", "提交时间",
@@ -1077,6 +1155,7 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 			StatusText:       student.StatusText,
 			PredictedScore:   intPtrText(student.PredictedScore, "未填写"),
 			QuizScore:        intPtrText(student.QuizScore, "待评分"),
+			RetakeScore:      intPtrText(student.RetakeScore, ""),
 			TeacherScore:     intPtrText(student.TeacherScore, "未评分"),
 			ActualScore:      intPtrText(student.ActualScore, "待评分"),
 			ActualSourceText: actualScoreSourceText(student.ActualScoreSource),
@@ -1092,6 +1171,7 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 				summary.StatusText,
 				summary.PredictedScore,
 				summary.QuizScore,
+				summary.RetakeScore,
 				summary.TeacherScore,
 				summary.ActualScore,
 				summary.ActualSourceText,
@@ -1160,6 +1240,7 @@ func (h *Handler) buildExportRows(students []StudentStats, courseTitle string) (
 			summary.StatusText,
 			summary.PredictedScore,
 			summary.QuizScore,
+			summary.RetakeScore,
 			summary.TeacherScore,
 			summary.ActualScore,
 			summary.ActualSourceText,
