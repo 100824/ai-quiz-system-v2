@@ -140,25 +140,26 @@ type Classroom struct {
 }
 
 type StatsSummary struct {
-	ClassCount           int               `json:"classCount"`
-	StudentCount         int               `json:"studentCount"`
-	CourseCount          int               `json:"courseCount"`
-	SectionCount         int               `json:"sectionCount"`
-	QuestionCount        int               `json:"questionCount"`
-	TotalClass           int               `json:"totalClass"`
-	SubmittedCount       int               `json:"submittedCount"`
-	Classes              []Class           `json:"classes"`
-	Courses              []Course          `json:"courses"`
-	Sections             []Section         `json:"sections"`
-	Parts                []PartStats       `json:"parts"`
-	Students             []StudentStats    `json:"students"`
-	NotSubmittedStudents []string          `json:"notSubmittedStudents"`
-	PredictionSummary    PredictionSummary `json:"predictionSummary"`
-	Part1Stats           Part1Stats        `json:"part1Stats"`
-	Part2Stats           Part2Stats        `json:"part2Stats"`
-	Part3Stats           Part3Stats        `json:"part3Stats"`
-	AIGuidanceStats      AIGuidanceStats   `json:"aiGuidanceStats"`
-	Classroom            *Classroom        `json:"classroom,omitempty"`
+	ClassCount           int                  `json:"classCount"`
+	StudentCount         int                  `json:"studentCount"`
+	CourseCount          int                  `json:"courseCount"`
+	SectionCount         int                  `json:"sectionCount"`
+	QuestionCount        int                  `json:"questionCount"`
+	TotalClass           int                  `json:"totalClass"`
+	SubmittedCount       int                  `json:"submittedCount"`
+	Classes              []Class              `json:"classes"`
+	Courses              []Course             `json:"courses"`
+	Sections             []Section            `json:"sections"`
+	Parts                []PartStats          `json:"parts"`
+	Students             []StudentStats       `json:"students"`
+	NotSubmittedStudents []string             `json:"notSubmittedStudents"`
+	PredictionSummary    PredictionSummary    `json:"predictionSummary"`
+	Part1Stats           Part1Stats           `json:"part1Stats"`
+	Part2Stats           Part2Stats           `json:"part2Stats"`
+	Part3Stats           Part3Stats           `json:"part3Stats"`
+	OptionDistributions  []OptionDistribution `json:"optionDistributions"`
+	AIGuidanceStats      AIGuidanceStats      `json:"aiGuidanceStats"`
+	Classroom            *Classroom           `json:"classroom,omitempty"`
 }
 
 type PartStats struct {
@@ -220,6 +221,23 @@ type QuestionCorrectRate struct {
 type Part3Stats struct {
 	ScoreDistribution   map[int]int           `json:"scoreDistribution"`
 	QuestionCorrectRate []QuestionCorrectRate `json:"questionCorrectRate"`
+}
+
+type OptionDistribution struct {
+	SectionID       int                      `json:"sectionId"`
+	QuestionID      int                      `json:"questionId"`
+	QuestionText    string                   `json:"questionText"`
+	QuestionType    string                   `json:"questionType"`
+	SortOrder       int                      `json:"sortOrder"`
+	RespondentCount int                      `json:"respondentCount"`
+	Options         []OptionDistributionItem `json:"options"`
+}
+
+type OptionDistributionItem struct {
+	Label      string `json:"label"`
+	Count      int    `json:"count"`
+	Percentage int    `json:"percentage"`
+	IsCorrect  bool   `json:"isCorrect"`
 }
 
 type StudentHistoryRecord struct {

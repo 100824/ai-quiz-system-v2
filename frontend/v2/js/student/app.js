@@ -3,6 +3,7 @@ import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { countAnnotatedHighlights, renderAnnotatedAnswer, sanitizeAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
 import { renderRichText } from '../core/rich-text.js?v=2026071101';
+const t = (value) => value;
 
 const state = {
   classes: [],
@@ -26,6 +27,7 @@ const state = {
   aiGuidancePollCounts: new Map(),
   aiGuidanceContextVersion: 0,
   retryingQuizSectionId: null,
+  pendingQuizResultScrollSectionId: null,
   pollTimer: null,
   completedSectionIds: new Set(),
   guessResultText: '-'
@@ -148,11 +150,11 @@ async function startQuizRetake(sectionId) {
 }
 
 function sectionTag(section, index) {
-  if (section.type === 'prediction') return '热身关卡';
-  if (section.type === 'learning') return index === 0 ? '准备关卡' : '思考关卡';
-  if (section.type === 'quiz') return '答题关卡';
-  if (section.type === 'reflection') return '反思关卡';
-  return '当前部分';
+  if (section.type === 'prediction') return t('热身关卡');
+  if (section.type === 'learning') return t(index === 0 ? '准备关卡' : '思考关卡');
+  if (section.type === 'quiz') return t('答题关卡');
+  if (section.type === 'reflection') return t('反思关卡');
+  return t('当前部分');
 }
 
 function renderPlainText(value) {
@@ -225,10 +227,10 @@ function countAIRounds(messages = []) {
 function renderAIChatThinking() {
   return `
     <div class="ai-chat-message ai-chat-message--assistant ai-chat-message--thinking">
-      <div class="ai-chat-message__role">AI 学习助手</div>
+      <div class="ai-chat-message__role">${t('AI 学习助手')}</div>
       <div class="ai-chat-message__content">
         <span class="ai-chat-thinking">
-          思考中
+          ${t('思考中')}
           <span class="ai-chat-thinking__dots" aria-hidden="true">
             <i></i><i></i><i></i>
           </span>
@@ -245,15 +247,15 @@ function renderAIChatMessages(messages = [], pending = false, streamingContent =
   }
   const rendered = normalized.map((item) => `
     <div class="ai-chat-message ai-chat-message--${item.role === 'user' ? 'user' : 'assistant'}">
-      <div class="ai-chat-message__role">${item.role === 'user' ? '我' : 'AI 学习助手'}</div>
+      <div class="ai-chat-message__role">${t(item.role === 'user' ? '我' : 'AI 学习助手')}</div>
       <div class="ai-chat-message__content">${renderMarkdown(item.content)}</div>
-      ${item.role === 'assistant' ? `<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" title="复制回复内容">📋 复制</button></div>` : ''}
+      ${item.role === 'assistant' ? `<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" title="${t('复制回复内容')}">${t('📋 复制')}</button></div>` : ''}
     </div>
   `).join('');
   if (streamingContent !== null) {
     return `${rendered}
       <div class="ai-chat-message ai-chat-message--assistant ai-chat-message--streaming">
-        <div class="ai-chat-message__role">AI 学习助手</div>
+        <div class="ai-chat-message__role">${t('AI 学习助手')}</div>
         <div class="ai-chat-message__content">${renderMarkdown(streamingContent)}</div>
       </div>`;
   }
@@ -262,7 +264,7 @@ function renderAIChatMessages(messages = [], pending = false, streamingContent =
 
 function renderAIChatTranscript(messages = [], pending = false) {
   const normalized = normalizeChatMessages(messages);
-  if (!normalized.length) return '<div class="empty">暂无 AI 对话记录。</div>';
+  if (!normalized.length) return `<div class="empty">${t('暂无 AI 对话记录。')}</div>`;
   return `<div class="ai-chat-transcript">${renderAIChatMessages(normalized, pending)}</div>`;
 }
 
@@ -325,7 +327,7 @@ function renderCompletedQuestion(question, index) {
     return `
       <div class="answer-item correct ai-chat-completed">
         <h4>${index + 1}. ${renderRichText(question.questionText || '')}</h4>
-        <div class="meta">AI 对话记录</div>
+        <div class="meta">${t('AI 对话记录')}</div>
         ${renderAIChatTranscript(question.chatMessages || [])}
       </div>
     `;
@@ -335,25 +337,25 @@ function renderCompletedQuestion(question, index) {
       <div class="answer-item correct answer-item--open-text">
         <h4>${index + 1}. ${renderRichText(question.questionText || '')}</h4>
         <div class="annotated-answer-block">
-          <strong>你的作答</strong>
+          <strong>${t('你的作答')}</strong>
           <div class="annotated-answer-content">${renderAnnotatedAnswer(question.answer)}</div>
         </div>
-        ${question.explanation ? `<div class="open-text-reference"><strong>参考解析</strong><div>${renderRichExplanationContent(question.explanation)}</div></div>` : ''}
+        ${question.explanation ? `<div class="open-text-reference"><strong>${t('参考解析')}</strong><div>${renderRichExplanationContent(question.explanation)}</div></div>` : ''}
       </div>
     `;
   }
   const isCorrect = !!question.isCorrect;
-  const answerText = question.answer ? renderPlainText(question.answer) : '未填写';
+  const answerText = question.answer ? renderPlainText(question.answer) : t('未填写');
   const correctText = question.correctAnswer ? renderPlainText(question.correctAnswer) : '-';
   return `
     <div class="answer-item ${isCorrect ? 'correct' : 'incorrect'}">
       <h4>
         ${index + 1}. ${renderRichText(question.questionText || '')}
-        <span class="${isCorrect ? 'correct-mark' : 'incorrect-mark'}">${isCorrect ? '✅ 正确' : '❌ 错误'}</span>
+        <span class="${isCorrect ? 'correct-mark' : 'incorrect-mark'}">${isCorrect ? `✅ ${t('正确')}` : `❌ ${t('错误')}`}</span>
       </h4>
-      <p>你的答案：<strong class="${isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${answerText}</strong></p>
-      <p>正确答案：<strong class="student-answer-text--correct">${correctText}</strong></p>
-      <p class="explanation"><span class="label">解析：</span><span class="content">${renderRichExplanationContent(question.explanation || '')}</span></p>
+      <p>${t('你的答案：')}<strong class="${isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${answerText}</strong></p>
+      <p>${t('正确答案：')}<strong class="student-answer-text--correct">${correctText}</strong></p>
+      <p class="explanation"><span class="label">${t('解析：')}</span><span class="content">${renderRichExplanationContent(question.explanation || '')}</span></p>
     </div>
   `;
 }
@@ -364,15 +366,15 @@ function renderCompletedSection(section, index) {
   return `
     <section class="student-quiz-block student-stage-block student-stage-block--done" data-section-id="${section.id}">
       <div class="student-quiz-head">
-        <span class="student-quiz-tag">已完成</span>
-        <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
+        <span class="student-quiz-tag">${t('已完成')}</span>
+        <h3>${safeHtml(t(section.title || `第${index + 1}部分`))}</h3>
       </div>
       ${isFinalizedRetryQuiz
-        ? `<div id="completedQuizResult-${section.id}" class="quiz-result-page"></div>`
+        ? `<div id="completedQuizResult-${section.id}" class="quiz-result-page" data-quiz-result-section-id="${section.id}"></div>`
         : `
             <div class="waiting-message">
               <div class="emoji">✅</div>
-              <p>该部分已完成，等待老师开启下一部分。</p>
+              <p>${t('该部分已完成，等待老师开启下一部分。')}</p>
             </div>
           `}
     </section>
@@ -383,10 +385,10 @@ function renderRetryableQuizSection(section, index) {
   return `
     <section class="student-quiz-block student-stage-block student-stage-block--active student-stage-block--retry" data-section-id="${section.id}">
       <div class="student-quiz-head">
-        <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
+        <h3>${safeHtml(t(section.title || `第${index + 1}部分`))}</h3>
       </div>
       <div id="quizRetryQuestions" class="list"></div>
-      <div id="quizRetrySubmitWrap"></div>
+      <div id="quizRetrySubmitWrap" data-quiz-result-section-id="${section.id}"></div>
     </section>
   `;
 }
@@ -395,12 +397,12 @@ function renderWaitingSection(section, index) {
   return `
     <section class="student-quiz-block student-stage-block student-stage-block--waiting" data-section-id="${section.id}">
       <div class="student-quiz-head">
-        <span class="student-quiz-tag">等待开启</span>
-        <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
+        <span class="student-quiz-tag">${t('等待开启')}</span>
+        <h3>${safeHtml(t(section.title || `第${index + 1}部分`))}</h3>
       </div>
       <div class="waiting-message">
         <div class="emoji">⏳</div>
-        <p>请完成当前开放内容，等待老师开启下一部分。</p>
+        <p>${t('请完成当前开放内容，等待老师开启下一部分。')}</p>
       </div>
     </section>
   `;
@@ -411,16 +413,16 @@ function renderPrepSection(student, blackboard) {
   return `
     <section class="student-quiz-block student-stage-block student-stage-block--waiting">
       <div class="student-quiz-head">
-        <span class="student-quiz-tag">准备环节</span>
-        <h3>请等待老师正式开启课堂</h3>
+        <span class="student-quiz-tag">${t('准备环节')}</span>
+        <h3>${t('请等待老师正式开启课堂')}</h3>
       </div>
-      <p class="student-quiz-text">${safeHtml(student?.name || '')}，请先查看课堂提示语，等老师正式开启课堂后再开始答题。</p>
+      <p class="student-quiz-text">${safeHtml(student?.name || '')}，${t('请先查看课堂提示语，等老师正式开启课堂后再开始答题。')}</p>
       <div class="student-prep-tip-card">
         <div class="student-prep-tip-head">
-          <span class="student-quiz-tag">课堂提示</span>
-          <h3>请等待老师正式开启课堂</h3>
+          <span class="student-quiz-tag">${t('课堂提示')}</span>
+          <h3>${t('请等待老师正式开启课堂')}</h3>
         </div>
-        <div class="student-prep-tip-content">${content ? renderBlackboardContent(content) : '老师还没有填写课堂提示语，请稍等。'}</div>
+        <div class="student-prep-tip-content">${content ? renderBlackboardContent(content) : t('老师还没有填写课堂提示语，请稍等。')}</div>
       </div>
     </section>
   `;
@@ -678,16 +680,16 @@ function renderAIGuidanceMessages(messages = [], pending = false, streamingConte
   const html = normalized.length
     ? normalized.map((item) => `
       <div class="ai-chat-message ai-chat-message--${item.role === 'user' ? 'user' : 'assistant'}">
-        <div class="ai-chat-message__role">${item.role === 'user' ? '我' : 'AI 学习指导助手'}</div>
+        <div class="ai-chat-message__role">${t(item.role === 'user' ? '我' : 'AI 学习指导助手')}</div>
         <div class="ai-chat-message__content">${renderMarkdown(item.content)}</div>
-        ${item.role === 'assistant' ? '<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" title="复制回复内容">📋 复制</button></div>' : ''}
+        ${item.role === 'assistant' ? `<div class="ai-chat-copy-wrap"><button type="button" class="ai-chat-copy-btn" title="${t('复制回复内容')}">${t('📋 复制')}</button></div>` : ''}
       </div>
     `).join('')
-    : '<div class="ai-chat-empty">AI将依据你的课堂表现生成个性化学习指导。</div>';
+    : `<div class="ai-chat-empty">${t('AI将依据你的课堂表现生成个性化学习指导。')}</div>`;
   if (streamingContent !== null) {
     return `${html}
       <div class="ai-chat-message ai-chat-message--assistant ai-chat-message--streaming">
-        <div class="ai-chat-message__role">AI 学习指导助手</div>
+        <div class="ai-chat-message__role">${t('AI 学习指导助手')}</div>
         <div class="ai-chat-message__content">${renderMarkdown(streamingContent)}</div>
       </div>`;
   }
@@ -707,35 +709,35 @@ function renderAIGuidanceModule(section, session = null, streamingContent = null
   const rounds = Number(session?.followUpRounds || 0);
   const canChat = status === 'ready' && rounds < 5 && !pending;
   const phaseHint = config.phase === 'plan'
-    ? '完成学习计划后，可以继续向AI追问，最后点击“完成第一部分”。'
-    : '你可以根据评价继续向AI追问；提交第四部分时会一并确认完成。';
+    ? t('完成学习计划后，可以继续向AI追问，最后点击“完成第一部分”。')
+    : t('你可以根据评价继续向AI追问；提交第四部分时会一并确认完成。');
   node.innerHTML = `
     <div class="ai-guidance-student-card ai-guidance-student-card--${escapeHtml(config.phase || 'plan')}">
       <div class="item-title">
-        <span>${escapeHtml(config.title || 'AI学习指导')}</span>
-        <span class="badge">${status === 'ready' ? '已生成' : status === 'completed' ? '已完成' : status === 'skipped' ? '已跳过' : status === 'failed' ? '生成失败' : '生成中'}</span>
+        <span>${escapeHtml(t(config.title || 'AI学习指导'))}</span>
+        <span class="badge">${t(status === 'ready' ? '已生成' : status === 'completed' ? '已完成' : status === 'skipped' ? '已跳过' : status === 'failed' ? '生成失败' : '生成中')}</span>
       </div>
       <p class="meta">${escapeHtml(phaseHint)}</p>
       ${status === 'failed' ? `
-        <div class="error-message">${escapeHtml(session?.errorMessage || 'AI暂时无法生成，请重试或跳过。')}</div>
+        <div class="error-message">${escapeHtml(session?.errorMessage || t('AI暂时无法生成，请重试或跳过。'))}</div>
         <div class="student-complete-actions ai-guidance-actions">
-          <button type="button" class="ai-guidance-retry-btn" data-section-id="${section.id}">重新生成</button>
-          <button type="button" class="secondary ai-guidance-skip-btn" data-section-id="${section.id}">跳过本次指导</button>
+          <button type="button" class="ai-guidance-retry-btn" data-section-id="${section.id}">${t('重新生成')}</button>
+          <button type="button" class="secondary ai-guidance-skip-btn" data-section-id="${section.id}">${t('跳过本次指导')}</button>
         </div>
       ` : `
         <div id="aiGuidanceMessages-${section.id}" class="ai-chat-messages">${renderAIGuidanceMessages(session?.messages || [], pending, streamingContent)}</div>
         ${status === 'ready' ? `
-          <div class="meta">已追问 ${rounds} / 5 轮</div>
+          <div class="meta">${t(`已追问 ${rounds} / 5 轮`)}</div>
           <div class="ai-chat-input-row">
             <textarea id="aiGuidanceInput-${section.id}" class="ai-chat-input" maxlength="500"
-              placeholder="可以继续询问学习计划、错题或下一步怎么做" ${canChat ? '' : 'disabled'}></textarea>
+              placeholder="${t('可以继续询问学习计划、错题或下一步怎么做')}" ${canChat ? '' : 'disabled'}></textarea>
             <button type="button" class="ai-chat-send-btn ai-guidance-send-btn" data-section-id="${section.id}" ${canChat ? '' : 'disabled'}>
-              ${rounds >= 5 ? '已达上限' : '发送'}
+              ${t(rounds >= 5 ? '已达上限' : '发送')}
             </button>
           </div>
           ${config.phase === 'plan' ? `
             <div class="student-complete-actions ai-guidance-actions">
-              <button type="button" class="ai-guidance-complete-btn" data-section-id="${section.id}">完成第一部分</button>
+              <button type="button" class="ai-guidance-complete-btn" data-section-id="${section.id}">${t('完成第一部分')}</button>
             </div>
           ` : ''}
         ` : ''}
@@ -912,7 +914,7 @@ async function sendAIGuidanceMessage(section) {
     streamRender.flush(streamingText);
     state.aiGuidanceSessions.set(section.id, data.session);
   } catch (error) {
-    window.showStudentAlert?.(`发送失败：${error.message}`, 'error');
+    window.showStudentAlert?.(t(`发送失败：${error.message}`), 'error');
   } finally {
     state.aiGuidancePending.delete(section.id);
     renderAIGuidanceModule(section, state.aiGuidanceSessions.get(section.id) || session);
@@ -929,7 +931,7 @@ async function completeAIGuidance(section, skip) {
     await syncCompletedSectionsFromHistory();
     await renderClassroom(state.student);
   } catch (error) {
-    window.showStudentAlert?.(`操作失败：${error.message}`, 'error');
+    window.showStudentAlert?.(t(`操作失败：${error.message}`), 'error');
   }
 }
 
@@ -1060,7 +1062,7 @@ async function renderClassroom(student) {
     $('classroom').innerHTML = `
       <div class="panel student-stage-banner">
         <h2>${safeHtml(course?.title || '当前课堂')}</h2>
-        <p class="meta">${safeHtml(student?.name || '')}，请先查看课堂提示，等待老师正式开启课堂。</p>
+        <p class="meta">${safeHtml(student?.name || '')}，${t('请先查看课堂提示，等待老师正式开启课堂。')}</p>
       </div>
       ${renderPrepSection(student, blackboard)}
     `;
@@ -1104,13 +1106,13 @@ async function renderClassroom(student) {
       const guidance = aiGuidanceConfig(section);
       const planAnswersSaved = guidance?.phase === 'plan' && sectionHasAttempt(section.id);
       const questionHtml = planAnswersSaved
-        ? '<div class="success-message">第一部分答题内容已保存，请完成下方的AI学习计划。</div>'
-        : (questions.length ? questions.map(renderQuestion).join('') : '<div class="empty">当前部分还没有题目。</div>');
+        ? `<div class="success-message">${t('第一部分答题内容已保存，请完成下方的AI学习计划。')}</div>`
+        : (questions.length ? questions.map((question, questionIndex) => renderQuestion(question, questionIndex)).join('') : `<div class="empty">${t('当前部分还没有题目。')}</div>`);
       return `
         <section class="student-quiz-block student-stage-block student-stage-block--active" data-section-id="${section.id}">
           <div class="student-quiz-head">
             <span class="student-quiz-tag">${safeHtml(sectionTag(section, index))}</span>
-            <h3>${safeHtml(section.title || `第${index + 1}部分`)}</h3>
+            <h3>${safeHtml(t(section.title || `第${index + 1}部分`))}</h3>
           </div>
           ${section.type === 'reflection'
             ? '<div id="reflectionScoreCompare"></div>'
@@ -1127,13 +1129,15 @@ async function renderClassroom(student) {
   $('classroom').innerHTML = `
     <div class="panel student-stage-banner">
       <h2>${safeHtml(course?.title || '当前课堂')}</h2>
-      <p class="meta">${safeHtml(student?.name || '')}，右侧内容会跟随老师课堂进度自动切换。</p>
+      <p class="meta">${safeHtml(student?.name || '')}，${t('右侧内容会跟随老师课堂进度自动切换。')}</p>
     </div>
     <div class="student-section-stack">
       ${sectionHtml.join('')}
     </div>
   `;
-  scrollToNewActiveSection(previousActiveSectionId, state.activeSection?.id || null);
+  if (!state.pendingQuizResultScrollSectionId) {
+    scrollToNewActiveSection(previousActiveSectionId, state.activeSection?.id || null);
+  }
   // After the one permitted retake, keep the third part visible with the same
   // result-card presentation as the first attempt instead of falling back to
   // the generic completed-answer layout.
@@ -1152,7 +1156,7 @@ async function renderClassroom(student) {
           true,
           `completedQuizResult-${section.id}`,
           '',
-          '本次重测已完成，系统仅记录第一次提交的小测分数。'
+          t('本次重测已完成，系统仅记录第一次提交的小测分数。')
         );
       }
     });
@@ -1163,7 +1167,7 @@ async function renderClassroom(student) {
     const questionsNode = $('quizRetryQuestions');
     if (questionsNode) {
       questionsNode.innerHTML = state.retryingQuizSectionId === quizSection.id
-        ? (questions.length ? questions.map(renderQuestion).join('') : '<div class="empty">当前部分还没有题目。</div>')
+        ? (questions.length ? questions.map((question, questionIndex) => renderQuestion(question, questionIndex)).join('') : `<div class="empty">${t('当前部分还没有题目。')}</div>`)
         : '';
       setupChoiceOptions(questionsNode);
     }
@@ -1173,22 +1177,22 @@ async function renderClassroom(student) {
       if (state.retryingQuizSectionId === quizSection.id) {
         sectionSubmitWrap.innerHTML = `
           <div id="quizRetryResultPage" class="quiz-result-page hidden"></div>
-          <button type="button" id="submitQuizRetryBtn">提交再测</button>
+          <button type="button" id="submitQuizRetryBtn">${t('提交再测')}</button>
           <div id="quizRetrySubmitResult" class="section-submit-result"></div>
         `;
       } else {
         sectionSubmitWrap.innerHTML = `
           <div id="quizRetryResultPage" class="quiz-result-page"></div>
           <div class="student-complete-actions">
-            <button type="button" id="startQuizRetryBtn" class="student-history-jump-btn">再测一次</button>
-            <span class="student-retry-description">你可以再次完成小测来复习巩固，但系统只记录第一次提交的小测分数。</span>
+            <button type="button" id="startQuizRetryBtn" class="student-history-jump-btn">${t('再测一次')}</button>
+            <span class="student-retry-description">${t('你可以再次完成小测来复习巩固，但系统只记录第一次提交的小测分数。')}</span>
           </div>
           <div id="quizRetrySubmitResult" class="section-submit-result"></div>
         `;
         if (resultData) {
           renderQuizResult(resultData, true, 'quizRetryResultPage', 'quizRetrySubmitResult');
         } else {
-          $('quizRetryResultPage').innerHTML = '<div class="empty">暂未找到小测结果，请刷新后重试。</div>';
+          $('quizRetryResultPage').innerHTML = `<div class="empty">${t('暂未找到小测结果，请刷新后重试。')}</div>`;
         }
       }
     }
@@ -1198,6 +1202,7 @@ async function renderClassroom(student) {
   const activeSection = activeIndex >= 0 ? state.sections[activeIndex] : null;
   if (!activeSection) {
     state.currentQuestions = [];
+    scrollToPendingQuizResult();
     return;
   }
   const hasAIChatQuestion = state.currentQuestions.some((question) => question.type === 'ai_chat');
@@ -1206,8 +1211,8 @@ async function renderClassroom(student) {
   const renderSubmitAction = (label) => hasAIChatQuestion
     ? `
       <div class="ai-chat-submit-actions">
-        <button type="button" id="submitSectionBtn" class="ai-chat-submit-btn">${label === '提交当前部分' ? '提交当前对话' : label}</button>
-        <span class="ai-chat-submit-description">完成与AI的对话后，请点击按钮提交</span>
+        <button type="button" id="submitSectionBtn" class="ai-chat-submit-btn">${t(label === '提交当前部分' ? '提交当前对话' : label)}</button>
+        <span class="ai-chat-submit-description">${t('完成与AI的对话后，请点击按钮提交')}</span>
       </div>
     `
     : `<button type="button" id="submitSectionBtn">${label}</button>`;
@@ -1221,10 +1226,10 @@ async function renderClassroom(student) {
       <div id="quizResultPage" class="quiz-result-page hidden"></div>
       ${resultData ? `
         <div class="student-complete-actions">
-          <button type="button" id="startQuizRetryBtn" class="student-history-jump-btn">再测一次</button>
-          <span class="student-retry-description">你可以再次完成小测来复习巩固，但系统只记录第一次提交的小测分数。</span>
+          <button type="button" id="startQuizRetryBtn" class="student-history-jump-btn">${t('再测一次')}</button>
+          <span class="student-retry-description">${t('你可以再次完成小测来复习巩固，但系统只记录第一次提交的小测分数。')}</span>
         </div>
-      ` : '<button type="button" id="submitSectionBtn">提交小测</button>'}
+      ` : `<button type="button" id="submitSectionBtn">${t('提交小测')}</button>`}
       <div id="sectionSubmitResult" class="section-submit-result"></div>
     `;
     if (resultData) {
@@ -1262,9 +1267,11 @@ async function renderClassroom(student) {
   setupChoiceOptions();
   setupAIChatQuestions();
   setupOpenTextEditors();
+  setupQuestionCardStates();
   if (activeGuidance && (activeGuidance.phase === 'evaluation' || planAnswersSaved)) {
     void loadOrGenerateAIGuidance(activeSection);
   }
+  scrollToPendingQuizResult();
 }
 
 async function renderCompletionState(student) {
@@ -1275,17 +1282,17 @@ async function renderCompletionState(student) {
   $('classroom').innerHTML = `
     <div class="panel student-stage-banner">
       <h2>${safeHtml(course?.title || '当前课堂')}</h2>
-      <p class="meta">${safeHtml(student?.name || '')}，你已经完成了本节课的全部任务。</p>
+      <p class="meta">${safeHtml(student?.name || '')}，${t('你已经完成了本节课的全部任务。')}</p>
     </div>
     ${hasScoreCompare ? '<div id="scoreCompare" class="student-complete-score-compare"></div>' : ''}
     <div class="panel student-complete-card">
       <div class="waiting-message">
         <div class="emoji">🎉</div>
-        <div class="student-complete-badge">学习任务完成</div>
-        <p>太棒了！你已经完成所有的问卷！<br>谢谢你的参与！🌟</p>
+        <div class="student-complete-badge">${t('学习任务完成')}</div>
+        <p>${t('太棒了！你已经完成所有的问卷！')}<br>${t('谢谢你的参与！🌟')}</p>
       </div>
       <div class="student-complete-actions">
-        <button type="button" id="historyJumpBtn" class="student-history-jump-btn">查看我的历史课堂答题数据</button>
+        <button type="button" id="historyJumpBtn" class="student-history-jump-btn">${t('查看我的历史课堂答题数据')}</button>
       </div>
     </div>
   `;
@@ -1311,14 +1318,24 @@ function scrollToNewActiveSection(previousSectionId, currentSectionId) {
   });
 }
 
+function scrollToPendingQuizResult() {
+  const sectionId = Number(state.pendingQuizResultScrollSectionId || 0);
+  if (!sectionId) return;
+  state.pendingQuizResultScrollSectionId = null;
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector(`[data-quiz-result-section-id="${sectionId}"]`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 function renderProgress() {
   const stageID = Number(state.classroom?.stageId || 0);
   const stageIndex = sectionIndexById(stageID);
   const nextIndex = nextIncompleteSectionIndex();
   const activeIndex = nextOpenedIncompleteSectionIndex(stageIndex);
   const parts = [
-    { id: 0, title: '准备环节' },
-    ...state.sections.map((section, index) => ({ id: section.id, title: `第${index + 1}部分` }))
+    { id: 0, title: t('准备环节') },
+    ...state.sections.map((section, index) => ({ id: section.id, title: t(`第${index + 1}部分`) }))
   ];
   const allCompleted = state.sections.length > 0
     && state.sections.every((section) => state.completedSectionIds.has(section.id));
@@ -1332,15 +1349,15 @@ function renderProgress() {
   const total = Math.max(parts.length, 1);
   const percent = Math.round((completed / total) * 100);
   const activeTitle = stageID === 0
-    ? '准备环节'
-    : (activeIndex >= 0 ? parts[activeIndex + 1]?.title : parts.find((part) => part.id === stageID)?.title) || '当前部分';
+    ? t('准备环节')
+    : (activeIndex >= 0 ? parts[activeIndex + 1]?.title : parts.find((part) => part.id === stageID)?.title) || t('当前部分');
 
   $('studentProgressSummary').textContent = allCompleted
-    ? '你已完成本节课全部任务。'
+    ? t('你已完成本节课全部任务。')
     : (stageID === 0 && !prepCompleted
-      ? '正在等待课堂开始'
-      : `当前进行中：${activeTitle}`);
-  $('studentProgressCount').textContent = `已完成 ${completed} / ${total}`;
+      ? t('正在等待课堂开始')
+      : t(`当前进行中：${activeTitle}`));
+  $('studentProgressCount').textContent = t(`已完成 ${completed} / ${total}`);
   $('studentProgressMeterFill').style.width = `${percent}%`;
   $('studentProgressList').innerHTML = parts.map((part, index) => {
     const isPrep = part.id === 0;
@@ -1349,7 +1366,7 @@ function renderProgress() {
     const active = isPrep ? !prepCompleted : (!done && sectionIndex === activeIndex && stageID > 0);
     const waiting = !done && !active && sectionIndex >= 0 && stageID > 0 && sectionIndex <= stageIndex;
     const statusClass = done ? 'done' : active ? 'active' : waiting ? 'waiting' : 'pending';
-    const statusText = done ? '已完成' : active ? (isPrep ? '等待开启' : '进行中') : waiting ? '已开放，先完成前面部分' : '未开始';
+    const statusText = t(done ? '已完成' : active ? (isPrep ? '等待开启' : '进行中') : waiting ? '已开放，先完成前面部分' : '未开始');
     const icon = done ? '✓' : active ? (isPrep ? '…' : '▶') : waiting ? '…' : '○';
     return `
       <div class="student-progress-item student-progress-item--${statusClass}">
@@ -1363,14 +1380,24 @@ function renderProgress() {
   }).join('');
 }
 
-function renderQuestion(question) {
+function renderQuestionHeader(question, index, typeLabel = questionTypeLabel(question.type)) {
+  return `
+    <div class="student-question-card__head">
+      <span class="student-question-number">${safeHtml(t(`第 ${index + 1} 题`))}</span>
+      <span class="student-question-kind">${safeHtml(t(typeLabel))}</span>
+      <span class="student-question-state" aria-label="${t('已作答')}">✓</span>
+    </div>
+  `;
+}
+
+function renderQuestion(question, index = 0) {
   const options = Array.isArray(question.options) ? question.options : [];
   const scoreRole = question.rules?.scoreRole || question.scoreRole || '';
   if (scoreRole === 'prediction') {
-    return renderPredictionQuestion(question, options);
+    return renderPredictionQuestion(question, options, index);
   }
   if (question.type === 'ai_chat') {
-    return renderAIChatQuestion(question);
+    return renderAIChatQuestion(question, index);
   }
   const optionHtml = options.map((item, index) => {
     const value = optionValue(item, index);
@@ -1381,29 +1408,31 @@ function renderQuestion(question) {
         <input type="${question.type === 'multiple_choice' ? 'checkbox' : 'radio'}" id="${optionId}" name="q_${question.id}" value="${safeHtml(value)}">
         <span class="option-text">
           ${isOther ? `
-            <span class="choice-other-label">${OTHER_OPTION_LABEL}：</span>
-            <input type="text" class="choice-other-input" data-question-id="${question.id}" data-option-index="${index}" placeholder="请填写其它内容" disabled>
-          ` : renderRichText(item)}
+            <span class="choice-other-label">${t(`${OTHER_OPTION_LABEL}：`)}</span>
+            <input type="text" class="choice-other-input" data-question-id="${question.id}" data-option-index="${index}" placeholder="${t('请填写其它内容')}" disabled>
+          ` : renderRichText(t(item))}
         </span>
       </label>
     `;
   }).join('');
   const answerHtml = question.type === 'single_choice' || question.type === 'multiple_choice'
     ? `<div class="options">${optionHtml}</div>`
-    : `<textarea name="q_${question.id}" placeholder="写下你的想法"></textarea>`;
+    : `<textarea name="q_${question.id}" placeholder="${t('写下你的想法')}"></textarea>`;
   return `
-    <div class="item">
-      <div class="item-title student-question-title">${renderRichText(question.title)}</div>
-      ${question.description ? `<div class="meta student-question-description">${renderRichText(question.description)}</div>` : ''}
-      <div class="meta student-question-type">${safeHtml(questionTypeLabel(question.type))}</div>
-      ${question.type === 'open_text'
-        ? renderOpenTextQuestion(question)
-        : answerHtml || '<div class="empty">AI 对话题暂无内容，请先发送学习相关问题。</div>'}
+    <div class="item student-question-card" data-question-id="${question.id}">
+      ${renderQuestionHeader(question, index)}
+      <div class="item-title student-question-title">${renderRichText(t(question.title))}</div>
+      ${question.description ? `<div class="meta student-question-description">${renderRichText(t(question.description))}</div>` : ''}
+      <div class="student-question-answer">
+        ${question.type === 'open_text'
+          ? renderOpenTextQuestion(question)
+          : answerHtml || `<div class="empty">${t('当前题目暂无作答内容。')}</div>`}
+      </div>
     </div>
   `;
 }
 
-function renderAIChatQuestion(question) {
+function renderAIChatQuestion(question, index = 0) {
   const messages = latestQuestionChatMessages(question.id);
   const rounds = countAIRounds(messages);
   const reachedLimit = rounds >= 5;
@@ -1413,25 +1442,60 @@ function renderAIChatQuestion(question) {
   const messagesHiddenClass = messages.length || pending ? '' : ' hidden';
   const presetHtml = presets.length && !reachedLimit ? `
     <div class="ai-chat-presets">
-      ${presets.map((p, i) => `<button type="button" class="ai-chat-preset-btn" data-question-id="${question.id}" data-preset-index="${i}">${safeHtml(p)}</button>`).join('')}
+      ${presets.map((p, i) => `<button type="button" class="ai-chat-preset-btn" data-question-id="${question.id}" data-preset-index="${i}">${safeHtml(t(p))}</button>`).join('')}
     </div>
   ` : '';
   return `
-    <div class="item ai-chat-question" data-question-id="${question.id}">
-      <div class="item-title student-question-title">${renderRichText(normalizeAIChatTitle(question.title))}</div>
-      ${question.description ? `<div class="meta student-question-description">${renderRichText(question.description)}</div>` : ''}
-      <div class="meta student-question-type">AI 对话题 · 已对话 <span id="ai-chat-rounds-${question.id}">${rounds}</span> / 5 轮</div>
-      <div class="ai-chat-box">
-        <div id="ai-chat-messages-${question.id}" class="ai-chat-messages${messagesHiddenClass}">${renderAIChatMessages(messages, pending)}</div>
-        ${presetHtml}
-        <div class="ai-chat-input-row">
-          <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="请输入学习相关的问题，也可以点击上方预设问题" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
-          <button type="button" class="ai-chat-send-btn" data-question-id="${question.id}" ${reachedLimit ? 'disabled' : ''}>${reachedLimit ? '已达上限' : '发送'}</button>
+    <div class="item student-question-card ai-chat-question" data-question-id="${question.id}">
+      ${renderQuestionHeader(question, index, 'AI 对话')}
+      <div class="item-title student-question-title">${renderRichText(t(normalizeAIChatTitle(question.title)))}</div>
+      ${question.description ? `<div class="meta student-question-description">${renderRichText(t(question.description))}</div>` : ''}
+      <div class="student-question-answer">
+        <div class="meta student-question-type" id="ai-chat-rounds-${question.id}">${safeHtml(t(`已对话 ${rounds} / 5 轮`))}</div>
+        <div class="ai-chat-box">
+          <div id="ai-chat-messages-${question.id}" class="ai-chat-messages${messagesHiddenClass}">${renderAIChatMessages(messages, pending)}</div>
+          ${presetHtml}
+          <div class="ai-chat-input-row">
+            <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="${t('请输入学习相关的问题，也可以点击上方预设问题')}" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
+            <button type="button" class="ai-chat-send-btn" data-question-id="${question.id}" ${reachedLimit ? 'disabled' : ''}>${t(reachedLimit ? '已达上限' : '发送')}</button>
+          </div>
+          <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? t('已达到 5 轮上限，可以提交本部分。') : t(AI_CHAT_GUIDE_TEXT)}</div>
         </div>
-        <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? '已达到 5 轮上限，可以提交本部分。' : AI_CHAT_GUIDE_TEXT}</div>
       </div>
     </div>
   `;
+}
+
+function questionCardHasAnswer(card) {
+  if (!card) return false;
+  if (card.querySelector('.ai-chat-message--user')) return true;
+  const checked = Array.from(card.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked'));
+  if (checked.length) {
+    return checked.every((input) => {
+      const option = input.closest('.option');
+      if (option?.dataset.otherOption !== 'true') return true;
+      return Boolean(option.querySelector('.choice-other-input')?.value.trim());
+    });
+  }
+  const editor = card.querySelector('.student-open-editor');
+  if (editor && editor.textContent.trim()) return true;
+  return Array.from(card.querySelectorAll('textarea:not(.ai-chat-input), input[type="text"]'))
+    .some((input) => input.value.trim());
+}
+
+function syncQuestionCardState(card) {
+  if (!card?.classList.contains('student-question-card')) return;
+  card.classList.toggle('student-question-card--answered', questionCardHasAnswer(card));
+}
+
+function setupQuestionCardStates(scope = document) {
+  scope.querySelectorAll('.student-question-card').forEach((card) => {
+    syncQuestionCardState(card);
+    if (card.dataset.stateBound === 'true') return;
+    card.dataset.stateBound = 'true';
+    card.addEventListener('input', () => syncQuestionCardState(card));
+    card.addEventListener('change', () => syncQuestionCardState(card));
+  });
 }
 
 function syncChoiceOptionState(scope = document) {
@@ -1507,7 +1571,7 @@ function updateAIChatView(questionId, messages, pending = false, streamingConten
   }
   const rounds = countAIRounds(normalized);
   const roundsNode = $(`ai-chat-rounds-${questionId}`);
-  if (roundsNode) roundsNode.textContent = String(rounds);
+  if (roundsNode) roundsNode.textContent = t(`已对话 ${rounds} / 5 轮`);
   const input = $(`ai-chat-input-${questionId}`);
   const sendBtn = document.querySelector(`.ai-chat-send-btn[data-question-id="${questionId}"]`);
   const statusNode = $(`ai-chat-status-${questionId}`);
@@ -1515,11 +1579,12 @@ function updateAIChatView(questionId, messages, pending = false, streamingConten
   if (input) input.disabled = reachedLimit || pending;
   if (sendBtn) {
     sendBtn.disabled = reachedLimit || pending;
-    sendBtn.textContent = pending ? '思考中' : (reachedLimit ? '已达上限' : '发送');
+    sendBtn.textContent = t(pending ? '思考中' : (reachedLimit ? '已达上限' : '发送'));
   }
   if (statusNode && reachedLimit) {
-    statusNode.textContent = '已达到 5 轮上限，可以提交本部分。';
+    statusNode.textContent = t('已达到 5 轮上限，可以提交本部分。');
   }
+  syncQuestionCardState(messagesNode?.closest('.student-question-card'));
 }
 
 function setupAIChatQuestions() {
@@ -1676,7 +1741,7 @@ function showCopyToast(msgEl) {
   if (!toast) {
     toast = document.createElement('div');
     toast.className = 'ai-chat-copy-toast';
-    toast.textContent = '已复制到剪贴板';
+    toast.textContent = t('已复制到剪贴板');
     toast.style.cssText = 'text-align:center;padding:8px 16px;margin-bottom:8px;background:#e8f5e9;color:#2e7d32;border-radius:10px;font-size:14px;font-weight:600;opacity:0;transition:opacity 0.3s;';
     const messagesEl = chatBox?.querySelector('.ai-chat-messages');
     if (messagesEl?.parentNode) {
@@ -1701,11 +1766,11 @@ async function sendAIChatMessage(questionId) {
   const statusNode = $(`ai-chat-status-${questionId}`);
   const message = input?.value.trim() || '';
   if (!question || !state.activeSection) {
-    if (statusNode) statusNode.textContent = '当前题目暂时不可对话，请刷新后重试。';
+    if (statusNode) statusNode.textContent = t('当前题目暂时不可对话，请刷新后重试。');
     return;
   }
   if (!message) {
-    if (statusNode) statusNode.textContent = '请先输入一个学习相关的问题。';
+    if (statusNode) statusNode.textContent = t('请先输入一个学习相关的问题。');
     return;
   }
   const messages = getStoredAIChatMessages(questionId);
@@ -1716,7 +1781,7 @@ async function sendAIChatMessage(questionId) {
   const optimisticMessages = normalizeChatMessages([...messages, { role: 'user', content: message }]);
   setStoredAIChatMessages(questionId, optimisticMessages);
   updateAIChatView(questionId, optimisticMessages, true);
-  if (statusNode) statusNode.textContent = 'AI 正在思考，请稍等...';
+  if (statusNode) statusNode.textContent = t('AI 正在思考，请稍等...');
   if (input) input.value = '';
   let streamingText = '';
   const streamRender = createStreamingRenderer((value) => {
@@ -1737,7 +1802,7 @@ async function sendAIChatMessage(questionId) {
     }, {
       onDelta: (delta) => {
         streamingText += delta;
-        if (statusNode) statusNode.textContent = 'AI 正在输出...';
+        if (statusNode) statusNode.textContent = t('AI 正在输出...');
         streamRender(streamingText);
       }
     });
@@ -1746,13 +1811,13 @@ async function sendAIChatMessage(questionId) {
     setStoredAIChatMessages(questionId, nextMessages);
     updateAIChatView(questionId, nextMessages, false);
     if ($(`ai-chat-status-${questionId}`) && countAIRounds(nextMessages) < 5) {
-      $(`ai-chat-status-${questionId}`).textContent = '本题已完成至少一轮对话，可以提交本部分，也可以继续追问。';
+      $(`ai-chat-status-${questionId}`).textContent = t('本题已完成至少一轮对话，可以提交本部分，也可以继续追问。');
     }
   } catch (error) {
     setStoredAIChatMessages(questionId, messages);
     updateAIChatView(questionId, messages, false);
     if (input) input.value = message;
-    if (statusNode) statusNode.textContent = `对话失败：${error.message}`;
+    if (statusNode) statusNode.textContent = t(`对话失败：${error.message}`);
   }
 }
 
@@ -1766,8 +1831,8 @@ function parsePredictionOption(option, index) {
   return { score, desc };
 }
 
-function renderPredictionQuestion(question, options) {
-  const questionText = question.description || question.title || '请选择一个最符合的答案。';
+function renderPredictionQuestion(question, options, index = 0) {
+  const questionText = t(question.description || question.title || '请选择一个最符合的答案。');
   const scoreCards = options.length ? options.map((option, index) => {
     const parsed = parsePredictionOption(option, index);
     const emoji = ['😰', '😟', '😅', '🤔', '😊', '🌟'][index] || '⭐';
@@ -1775,20 +1840,19 @@ function renderPredictionQuestion(question, options) {
       <label class="rating-option">
         <input type="radio" name="q_${question.id}" value="${safeHtml(parsed.score)}">
         <div class="emoji">${emoji}</div>
-        <div class="score">${safeHtml(parsed.score)}分</div>
-        <div class="desc">${renderRichText(parsed.desc)}</div>
+        <div class="score">${safeHtml(t(`${parsed.score}分`))}</div>
+        <div class="desc">${renderRichText(t(parsed.desc))}</div>
       </label>
     `;
-  }).join('') : '<div class="empty">暂无评分选项。</div>';
+  }).join('') : `<div class="empty">${t('暂无评分选项。')}</div>`;
   return `
-    <section class="question-item student-quiz-block student-quiz-block--prediction">
-      <div class="student-quiz-head">
-        <span class="student-quiz-tag">热身关卡</span>
-        <h3>题目一：猜一猜 🤔</h3>
-      </div>
-      <p class="student-quiz-text">${renderRichText(questionText)}</p>
-      <div class="rating-options" id="prediction-score">
-        ${scoreCards}
+    <section class="question-item student-quiz-block student-quiz-block--prediction item student-question-card" data-question-id="${question.id}">
+      ${renderQuestionHeader(question, index, '分数预测')}
+      <div class="item-title student-question-title">${renderRichText(questionText)}</div>
+      <div class="student-question-answer">
+        <div class="rating-options" id="prediction-score">
+          ${scoreCards}
+        </div>
       </div>
     </section>
   `;
@@ -1798,20 +1862,20 @@ function renderOpenTextQuestion(question) {
   const annotationEnabled = true;
   return `
     <div class="student-open-question">
-      <p class="student-quiz-text student-answer-instruction">${annotationEnabled ? '请写下你的思考，并按要求用颜色标注重点、疑惑和错误观点。' : '请写下你的思考，完整表达自己的想法。'}</p>
+      <p class="student-quiz-text student-answer-instruction">${t(annotationEnabled ? '请写下你的思考，并按要求用颜色标注重点、疑惑和错误观点。' : '请写下你的思考，完整表达自己的想法。')}</p>
       ${annotationEnabled ? `
         <div class="student-part2-toolbar">
-          <button type="button" class="btn student-mark-btn student-mark-btn--green" onclick="applyOpenTextHighlight('green', ${question.id})">绿色：关键事实或观点</button>
-          <button type="button" class="btn student-mark-btn student-mark-btn--yellow" onclick="applyOpenTextHighlight('yellow', ${question.id})">黄色：完全看不懂或不清楚的地方</button>
-          <button type="button" class="btn student-mark-btn student-mark-btn--red" onclick="applyOpenTextHighlight('red', ${question.id})">红色：明显错误或自己不同意的内容</button>
-          <button type="button" class="btn student-mark-btn student-mark-btn--clear" onclick="clearOpenTextHighlight(${question.id})">去除颜色</button>
+          <button type="button" class="btn student-mark-btn student-mark-btn--green" onclick="applyOpenTextHighlight('green', ${question.id})">${t('绿色：关键事实或观点')}</button>
+          <button type="button" class="btn student-mark-btn student-mark-btn--yellow" onclick="applyOpenTextHighlight('yellow', ${question.id})">${t('黄色：完全看不懂或不清楚的地方')}</button>
+          <button type="button" class="btn student-mark-btn student-mark-btn--red" onclick="applyOpenTextHighlight('red', ${question.id})">${t('红色：明显错误或自己不同意的内容')}</button>
+          <button type="button" class="btn student-mark-btn student-mark-btn--clear" onclick="clearOpenTextHighlight(${question.id})">${t('去除颜色')}</button>
         </div>
       ` : ''}
       <div class="student-open-editor-wrap">
-        <div id="open-text-editor-${question.id}" class="student-open-editor" contenteditable="true" data-annotation-enabled="${annotationEnabled ? 'true' : 'false'}" data-placeholder="${annotationEnabled ? '请在这里写下你的答案，并至少给一处文字加上颜色标注...' : '请在这里写下你的答案...'}"></div>
+        <div id="open-text-editor-${question.id}" class="student-open-editor" contenteditable="true" data-annotation-enabled="${annotationEnabled ? 'true' : 'false'}" data-placeholder="${t(annotationEnabled ? '请在这里写下你的答案，并至少给一处文字加上颜色标注...' : '请在这里写下你的答案...')}"></div>
       </div>
       <div id="open-text-results-${question.id}" class="hidden student-inline-result">
-        <h4>参考解析</h4>
+        <h4>${t('参考解析')}</h4>
         <p id="open-text-explanation-${question.id}" class="open-text-explanation"></p>
       </div>
     </div>
@@ -1893,25 +1957,25 @@ async function renderScoreCompare() {
   };
   target.innerHTML = `
     <div class="score-compare-card">
-      <h3>1. 我的学习成果 📊</h3>
+      <h3>${t('1. 我的学习成果 📊')}</h3>
       <div class="score-compare">
         <div class="score-item">
-          <div class="label">预测分数</div>
-          <div class="value">${summary.predictedScore ?? '未填写'}</div>
+          <div class="label">${t('预测分数')}</div>
+          <div class="value">${summary.predictedScore ?? t('未填写')}</div>
         </div>
         <div class="score-item">
-          <div class="label">小测得分</div>
-          <div class="value">${summary.actualScore ?? '待生成'}</div>
+          <div class="label">${t('小测得分')}</div>
+          <div class="value">${summary.actualScore ?? t('待生成')}</div>
         </div>
         ${summary.retakeScore != null ? `
           <div class="score-item">
-            <div class="label">重测得分</div>
+            <div class="label">${t('重测得分')}</div>
             <div class="value">${summary.retakeScore}</div>
           </div>
         ` : ''}
       </div>
       <div class="feedback ${guessResultText === '猜高' ? 'warning' : 'success'}">
-        ${guessResultText === '-' ? '等待分数生成后展示对比结果。' : (feedbackMap[guessResultText] || `对比结果：${safeHtml(guessResultText)}`)}
+        ${guessResultText === '-' ? t('等待分数生成后展示对比结果。') : (feedbackMap[guessResultText] ? t(feedbackMap[guessResultText]) : t(`对比结果：${safeHtml(guessResultText)}`))}
       </div>
     </div>
   `;
@@ -1944,6 +2008,8 @@ function setupOpenTextEditors() {
   document.querySelectorAll('.student-open-editor').forEach((editor) => {
     if (editor.dataset.pasteBound === 'true') return;
     editor.dataset.pasteBound = 'true';
+    const syncCard = () => syncQuestionCardState(editor.closest('.student-question-card'));
+    editor.addEventListener('input', syncCard);
     editor.addEventListener('paste', (event) => {
       event.preventDefault();
       const pastedText = (event.clipboardData?.getData('text/plain') || '')
@@ -1955,6 +2021,7 @@ function setupOpenTextEditors() {
       if (!selection || selection.rangeCount === 0) {
         editor.appendChild(document.createTextNode(pastedText));
         editor.normalize();
+        syncCard();
         return;
       }
       let range = selection.getRangeAt(0);
@@ -1977,6 +2044,7 @@ function setupOpenTextEditors() {
       selection.removeAllRanges();
       selection.addRange(range);
       editor.normalize();
+      syncCard();
     });
   });
 }
@@ -2066,17 +2134,17 @@ function applyOpenTextHighlight(color, questionId) {
   editor.focus();
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    window.showStudentAlert?.('请先选中你要标注的文字。', 'warning');
+    window.showStudentAlert?.(t('请先选中你要标注的文字。'), 'warning');
     return;
   }
   const range = selection.getRangeAt(0);
   if (!editor.contains(range.commonAncestorContainer)) {
-    window.showStudentAlert?.('请在答题区域内选择文字后再标注。', 'warning');
+    window.showStudentAlert?.(t('请在答题区域内选择文字后再标注。'), 'warning');
     return;
   }
   const segments = getOpenTextSelectedTextSegments(editor, range);
   if (segments.length === 0) {
-    window.showStudentAlert?.('请选中具体文字后再标注。', 'warning');
+    window.showStudentAlert?.(t('请选中具体文字后再标注。'), 'warning');
     return;
   }
   let appliedCount = 0;
@@ -2086,7 +2154,7 @@ function applyOpenTextHighlight(color, questionId) {
     appliedCount += wrapOpenTextNode(plainNode, color);
   });
   if (appliedCount === 0) {
-    window.showStudentAlert?.('请选中具体文字后再标注。', 'warning');
+    window.showStudentAlert?.(t('请选中具体文字后再标注。'), 'warning');
     return;
   }
   editor.normalize();
@@ -2099,17 +2167,17 @@ function clearOpenTextHighlight(questionId) {
   editor.focus();
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    window.showStudentAlert?.('请先选中要去除颜色的文字。', 'warning');
+    window.showStudentAlert?.(t('请先选中要去除颜色的文字。'), 'warning');
     return;
   }
   const range = selection.getRangeAt(0);
   if (!editor.contains(range.commonAncestorContainer)) {
-    window.showStudentAlert?.('请在答题区域内选择文字后再去除颜色。', 'warning');
+    window.showStudentAlert?.(t('请在答题区域内选择文字后再去除颜色。'), 'warning');
     return;
   }
   const segments = getOpenTextSelectedTextSegments(editor, range);
   if (segments.length === 0) {
-    window.showStudentAlert?.('请选中具体文字后再去除颜色。', 'warning');
+    window.showStudentAlert?.(t('请选中具体文字后再去除颜色。'), 'warning');
     return;
   }
   segments.reverse().forEach(({ node, start, end }) => {
@@ -2125,7 +2193,7 @@ function renderQuizResult(
   keepVisible = false,
   targetId = 'quizResultPage',
   resultNodeId = 'sectionSubmitResult',
-  resultNote = '你可以再次作答，但系统只记录第一次提交的小测分数。'
+    resultNote = t('你可以再次作答，但系统只记录第一次提交的小测分数。')
 ) {
   const results = data?.results || [];
   const target = $(targetId);
@@ -2133,25 +2201,25 @@ function renderQuizResult(
   const showWaitingForReflection = targetId === 'quizResultPage';
   const html = `
     <div class="quiz-result-card">
-      <h3>小测结果</h3>
+      <h3>${t('小测结果')}</h3>
       <div class="student-score-display">
-        <div class="student-score-display__title">你的得分</div>
+        <div class="student-score-display__title">${t('你的得分')}</div>
         <div class="student-score-display__value">${data?.score ?? 0}/${data?.total ?? results.length}</div>
       </div>
       <p class="meta">${safeHtml(resultNote)}</p>
       ${results.map((item, index) => `
         <div class="answer-item ${item.isCorrect ? 'correct' : 'incorrect'}">
           <h4>${index + 1}. ${renderRichText(item.question || '')}
-            <span class="${item.isCorrect ? 'correct-mark' : 'incorrect-mark'}">${item.isCorrect ? '✅ 正确' : '❌ 错误'}</span>
+            <span class="${item.isCorrect ? 'correct-mark' : 'incorrect-mark'}">${item.isCorrect ? `✅ ${t('正确')}` : `❌ ${t('错误')}`}</span>
           </h4>
-          <p>你的答案：<strong class="${item.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${safeHtml(item.studentAnswer || '未填写')}</strong></p>
-          <p>正确答案：<strong class="student-answer-text--correct">${safeHtml(item.correctAnswer || '-')}</strong></p>
-          <p class="explanation"><span class="label">解析：</span><span class="content">${renderRichExplanationContent(item.explanation || '')}</span></p>
+          <p>${t('你的答案：')}<strong class="${item.isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${safeHtml(item.studentAnswer || t('未填写'))}</strong></p>
+          <p>${t('正确答案：')}<strong class="student-answer-text--correct">${safeHtml(item.correctAnswer || '-')}</strong></p>
+          <p class="explanation"><span class="label">${t('解析：')}</span><span class="content">${renderRichExplanationContent(item.explanation || '')}</span></p>
         </div>
       `).join('')}
       ${showWaitingForReflection ? `<div class="waiting-message" id="waiting-part4">
         <div class="emoji">⏳</div>
-        <p>请等待老师开启第四部分...</p>
+        <p>${t('请等待老师开启第四部分...')}</p>
       </div>` : ''}
     </div>
   `;
@@ -2179,12 +2247,12 @@ function renderOpenTextSubmissionResults(results = []) {
     const container = $(`open-text-results-${question.id}`);
     if (!container) return;
     const result = resultMap.get(String(question.id)) || {};
-    const explanation = result.explanation || question.explanation || '暂无参考解析。';
+    const explanation = result.explanation || question.explanation || t('暂无参考解析。');
     const answer = result.studentAnswer || getOpenTextEditorHtml(question.id);
     container.innerHTML = `
-      <h4>参考解析</h4>
+      <h4>${t('参考解析')}</h4>
       <div class="student-inline-result__body">
-        <div class="annotated-answer-block"><strong>你的作答</strong><div class="annotated-answer-content">${renderAnnotatedAnswer(answer, '已提交')}</div></div>
+        <div class="annotated-answer-block"><strong>${t('你的作答')}</strong><div class="annotated-answer-content">${renderAnnotatedAnswer(answer, t('已提交'))}</div></div>
         <p id="open-text-explanation-${question.id}" class="open-text-explanation">${renderRichExplanationContent(explanation)}</p>
       </div>
     `;
@@ -2207,7 +2275,7 @@ function collectCurrentAnswers(questions = state.currentQuestions) {
       const text = editor?.innerText.trim() || '';
       if (!text) missing.push(questionLabelForValidation(question));
       if (annotationEnabled && editor && countOpenTextHighlights(editor) === 0) {
-        throw new Error('开放题至少需要标注一处颜色');
+        throw new Error(t('开放题至少需要标注一处颜色'));
       }
       answers[key] = html;
       continue;
@@ -2285,6 +2353,7 @@ async function submitCurrentSection() {
       state.lastQuizResult = data;
       saveQuizResultCache(data);
       state.retryingQuizSectionId = null;
+      state.pendingQuizResultScrollSectionId = submittedSectionId;
       state.completedSectionIds.add(submittedSectionId);
       await syncCompletedSectionsFromHistory();
       await renderClassroom(state.student);
@@ -2293,18 +2362,18 @@ async function submitCurrentSection() {
     } else if (state.activeSection.type === 'reflection') {
       state.completedSectionIds.add(state.activeSection.id);
       renderProgress();
-      resultNode.innerHTML = `<div class="success-message">完成反思</div>`;
+      resultNode.innerHTML = `<div class="success-message">${t('完成反思')}</div>`;
       await renderScoreCompare();
     } else if (state.activeSection.type === 'learning') {
       state.completedSectionIds.add(state.activeSection.id);
       renderProgress();
       renderOpenTextSubmissionResults(data.results || []);
       setOpenTextEditorsLocked(true);
-      resultNode.innerHTML = `<div class="success-message">提交成功</div>`;
+      resultNode.innerHTML = `<div class="success-message">${t('提交成功')}</div>`;
     } else {
       state.completedSectionIds.add(state.activeSection.id);
       renderProgress();
-      resultNode.innerHTML = `<div class="success-message">提交成功</div>`;
+      resultNode.innerHTML = `<div class="success-message">${t('提交成功')}</div>`;
     }
     await refreshClassroomState({ forceRender: true });
   } catch (error) {
@@ -2329,6 +2398,7 @@ async function submitQuizRetry(quizSection, questions) {
     state.lastQuizResult = data;
     saveQuizResultCache(data);
     state.retryingQuizSectionId = null;
+    state.pendingQuizResultScrollSectionId = quizSection.id;
     await syncCompletedSectionsFromHistory();
     await renderClassroom(state.student);
     await renderScoreCompare();
@@ -2347,7 +2417,7 @@ function questionTypeLabel(type) {
     open_text: '开放题',
     ai_chat: 'AI 对话题'
   };
-  return labels[type] || type;
+  return t(labels[type] || type);
 }
 
 function openHistoryPage() {

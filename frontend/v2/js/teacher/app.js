@@ -842,6 +842,9 @@ function renderStats() {
   const part1Stats = stats.part1Stats || {};
   const part2Stats = stats.part2Stats || {};
   const part3Stats = stats.part3Stats || {};
+  const predictionSummary = stats.predictionSummary || {};
+  const optionDistributions = Array.isArray(stats.optionDistributions) ? stats.optionDistributions : [];
+  const reflectionMode = getSelectedCourseMode() === 'reflection';
 
   // Build section type lookup
   const sectionById = {};
@@ -864,17 +867,24 @@ function renderStats() {
       const section = sectionById[part.sectionId];
       const sectionType = section ? section.type : '';
       const hasCompletions = (part.completed || 0) > 0;
+      const sectionDistributions = optionDistributions.filter(
+        (item) => Number(item.sectionId) === Number(part.sectionId)
+      );
+      const questionDistributionsHtml = renderQuestionOptionDistributions(
+        sectionDistributions
+      );
 
       if (sectionType === 'prediction') {
         const predictionDistribution = Object.entries(part1Stats.predictionScoreDistribution || {});
-        const learningMethodsDistribution = Object.entries(part1Stats.learningMethodsDistribution || {});
+        const completionEntries = Object.entries(part1Stats.learningMethodsDistribution || {})
+          .filter(([label]) => label === '开放题（已完成）' || label === 'AI 对话题（已完成）');
         const hasPredictionData = predictionDistribution.length > 0;
-        const hasLearningData = learningMethodsDistribution.length > 0;
+        const hasOptionData = Boolean(questionDistributionsHtml);
 
-        if (!hasCompletions && !hasPredictionData && !hasLearningData) {
+        if (!hasCompletions && !hasPredictionData && !hasOptionData) {
           sections.push(`
             <div class="stats-section">
-              <h4>${escapeHtml(part.title)}</h4>
+              ${renderStatsPartHeader(part)}
               <p class="empty">该部分暂无学生作答</p>
             </div>
           `);
@@ -883,29 +893,26 @@ function renderStats() {
 
         sections.push(`
           <div class="stats-section">
-            <h4>${escapeHtml(part.title)}</h4>
+            ${renderStatsPartHeader(part)}
             ${hasPredictionData ? `
               <p><strong>预测分布：</strong></p>
-              ${renderDistributionList(predictionDistribution, '暂无预测分数据')}
+              ${renderScoreDistribution(predictionDistribution, '暂无预测分数据', '分')}
             ` : ''}
-            ${hasLearningData ? `
-              <p style="margin-top: 12px;"><strong>学习方法/开放项分布：</strong></p>
-              ${renderDistributionList(learningMethodsDistribution, '暂无学习方法数据')}
-            ` : ''}
+            ${questionDistributionsHtml}
+            ${renderCompletionCounts(completionEntries)}
           </div>
         `);
         return;
       }
 
       if (sectionType === 'learning') {
-        const understandingDistribution = Object.entries(part2Stats.understandingDistribution || {});
-        const hasUnderstandingData = understandingDistribution.length > 0;
+        const hasOptionData = Boolean(questionDistributionsHtml);
         const filledCount = part2Stats.filledCount || 0;
 
-        if (!hasCompletions && filledCount === 0 && !hasUnderstandingData) {
+        if (!hasCompletions && filledCount === 0 && !hasOptionData) {
           sections.push(`
             <div class="stats-section">
-              <h4>${escapeHtml(part.title)}</h4>
+              ${renderStatsPartHeader(part)}
               <p class="empty">该部分暂无学生作答</p>
             </div>
           `);
@@ -914,12 +921,9 @@ function renderStats() {
 
         sections.push(`
           <div class="stats-section">
-            <h4>${escapeHtml(part.title)}</h4>
+            ${renderStatsPartHeader(part)}
             <p><strong>填写人数：</strong>${filledCount}/${part2Stats.totalCount || total}人</p>
-            ${hasUnderstandingData ? `
-              <p><strong>理解/关键词分布：</strong></p>
-              ${renderDistributionList(understandingDistribution, '暂无统计数据')}
-            ` : ''}
+            ${questionDistributionsHtml}
           </div>
         `);
         return;
@@ -930,11 +934,14 @@ function renderStats() {
         const questionCorrectRates = Array.isArray(part3Stats.questionCorrectRate) ? part3Stats.questionCorrectRate : [];
         const hasScoreData = scoreDistribution.length > 0;
         const hasQuestionRates = questionCorrectRates.length > 0;
+        const quizQuestionDistributionsHtml = renderQuestionOptionDistributions(sectionDistributions, {
+          questionCorrectRates
+        });
 
         if (!hasCompletions && !hasScoreData && !hasQuestionRates) {
           sections.push(`
             <div class="stats-section">
-              <h4>${escapeHtml(part.title)}</h4>
+              ${renderStatsPartHeader(part)}
               <p class="empty">该部分暂无学生作答</p>
             </div>
           `);
@@ -943,36 +950,35 @@ function renderStats() {
 
         sections.push(`
           <div class="stats-section">
-            <h4>${escapeHtml(part.title)}</h4>
+            ${renderStatsPartHeader(part)}
             ${hasScoreData ? `
               <p><strong>得分分布：</strong></p>
-              ${renderDistributionList(scoreDistribution, '暂无小测得分数据')}
+              ${renderScoreDistribution(scoreDistribution, '暂无小测得分数据', '分')}
             ` : ''}
-            ${hasQuestionRates ? `
-              <p style="margin-top: 12px;"><strong>每道题正确率：</strong></p>
-              <div class="stats-question-rate-list">
-                ${questionCorrectRates.map((item, index) => `
-                  <div class="stats-question-rate-item">
-                    <div class="item-title">
-                      <span>第${item.sortOrder || (index + 1)}题</span>
-                      <span class="badge">${item.correctRate ?? 0}%</span>
-                    </div>
-                    <div class="meta">${renderRichText(item.questionText || '')}</div>
-                    <div class="meta">${item.correctCount || 0}/${item.totalCount || 0} 人答对</div>
-                  </div>
-                `).join('')}
-              </div>
-            ` : ''}
+            ${quizQuestionDistributionsHtml}
           </div>
         `);
         return;
       }
 
-      // Fallback: other section types (reflection, custom)
+      if (sectionType === 'reflection' && reflectionMode) {
+        const comparisonHtml = renderPredictionComparison(predictionSummary);
+        sections.push(`
+          <div class="stats-section">
+            ${renderStatsPartHeader(part)}
+            <p><strong>预测与实际结果对比：</strong></p>
+            ${comparisonHtml}
+            ${questionDistributionsHtml}
+          </div>
+        `);
+        return;
+      }
+
+      // Fallback: other section types (custom/free mode)
       if (!hasCompletions) {
         sections.push(`
           <div class="stats-section">
-            <h4>${escapeHtml(part.title)}</h4>
+            ${renderStatsPartHeader(part)}
             <p class="empty">该部分暂无学生作答</p>
           </div>
         `);
@@ -981,8 +987,8 @@ function renderStats() {
 
       sections.push(`
         <div class="stats-section">
-          <h4>${escapeHtml(part.title)}</h4>
-          <p class="empty">暂无该部分详细统计数据</p>
+          ${renderStatsPartHeader(part)}
+          ${questionDistributionsHtml || '<p class="empty">暂无该部分详细统计数据</p>'}
         </div>
       `);
     });
@@ -1057,25 +1063,153 @@ function renderStats() {
   `;
 }
 
-function renderDistributionList(entries, emptyText) {
+function renderScoreDistribution(entries, emptyText, suffix = '') {
   if (!entries || entries.length === 0) {
     return `<div class="empty">${emptyText}</div>`;
   }
+  const normalized = entries.map(([key, value]) => [key, Number(value) || 0]);
+  const total = normalized.reduce((sum, [, value]) => sum + value, 0);
+  const max = Math.max(...normalized.map(([, value]) => value), 0);
   return `
-    <div class="stats-distribution-table">
-      <div class="stats-distribution-head">
-        <span>分值 / 选项</span>
-        <span>人数</span>
-      </div>
-      <div class="stats-distribution-list">
-      ${entries.map(([key, value]) => `
-        <div class="stats-distribution-item">
-          <span class="stats-distribution-item__label">${escapeHtml(String(key))}</span>
-          <strong class="stats-distribution-item__value">${value}</strong>
+    <div class="stats-bar-chart stats-bar-chart--score">
+      ${normalized.map(([key, value]) => {
+        const percentage = total ? Math.round(value * 100 / total) : 0;
+        return `
+        <div class="stats-bar-row${value === max && max > 0 ? ' stats-bar-row--peak' : ''}">
+          <div class="stats-bar-row__top">
+            <span class="stats-bar-row__label">${escapeHtml(String(key))}${suffix}</span>
+            <span class="stats-bar-row__metrics"><strong>${value}</strong> 人 <em>${percentage}%</em></span>
+          </div>
+          <div class="stats-bar-row__track"><span style="width:${percentage}%"></span></div>
+        </div>
+      `; }).join('')}
+    </div>
+  `;
+}
+
+function renderStatsPartHeader(part) {
+  return `
+    <div class="stats-part-header">
+      <h4>${escapeHtml(part.title || '')}</h4>
+      <span class="stats-part-header__count">作答总人数 <strong>${Number(part.completed) || 0}</strong> 人</span>
+    </div>
+  `;
+}
+
+function renderQuestionOptionDistributions(distributions, { questionCorrectRates = [] } = {}) {
+  if (!distributions?.length) return '';
+  const typeLabels = { single_choice: '单选题', multiple_choice: '多选题' };
+  const correctRateByQuestion = new Map(
+    questionCorrectRates.map((item) => [Number(item.questionId), item])
+  );
+  return `
+    <div class="stats-question-distributions">
+      <p><strong>各题选项分布：</strong></p>
+      ${distributions.map((item) => {
+        const options = Array.isArray(item.options) ? item.options : [];
+        const maxCount = Math.max(...options.map((option) => Number(option.count) || 0), 0);
+        const correctRate = correctRateByQuestion.get(Number(item.questionId));
+        const showAnswerColors = Boolean(correctRate) && options.some((option) => option.isCorrect);
+        return `
+          <article class="stats-option-chart${correctRate ? ' stats-option-chart--quiz' : ''}">
+            <header class="stats-option-chart__header">
+              <div>
+                <span class="stats-option-chart__number">第${item.sortOrder || '-'}题</span>
+                <span class="stats-option-chart__type">${typeLabels[item.questionType] || escapeHtml(item.questionType || '选择题')}</span>
+              </div>
+              <span class="stats-option-chart__respondents">${Number(item.respondentCount) || 0} 人作答</span>
+            </header>
+            <div class="stats-option-chart__title">${renderRichText(item.questionText || '')}</div>
+            ${correctRate ? renderQuestionCorrectSummary(correctRate) : ''}
+            <div class="stats-bar-chart">
+              ${options.map((option) => {
+                const count = Number(option.count) || 0;
+                const percentage = Number(option.percentage) || 0;
+                const answerClass = showAnswerColors
+                  ? (option.isCorrect ? ' stats-bar-row--correct-answer' : ' stats-bar-row--wrong-answer')
+                  : (count === maxCount && maxCount > 0 ? ' stats-bar-row--peak' : '');
+                return `
+                  <div class="stats-bar-row${answerClass}">
+                    <div class="stats-bar-row__top">
+                      <span class="stats-bar-row__label">${renderRichText(option.label || '-')}</span>
+                      <span class="stats-bar-row__metrics"><strong>${count}</strong> 人 <em>${percentage}%</em></span>
+                    </div>
+                    <div class="stats-bar-row__track"><span style="width:${Math.max(0, Math.min(100, percentage))}%"></span></div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderCompletionCounts(entries) {
+  if (!entries?.length) return '';
+  return `
+    <div class="stats-completion-summary">
+      ${entries.map(([label, count]) => `
+        <div>
+          <span>${escapeHtml(label)}</span>
+          <strong>${Number(count) || 0} 人</strong>
         </div>
       `).join('')}
+    </div>
+  `;
+}
+
+function renderQuestionCorrectSummary(item) {
+  const total = Math.max(0, Number(item.totalCount) || 0);
+  const correct = Math.max(0, Math.min(total, Number(item.correctCount) || 0));
+  const incorrect = Math.max(0, total - correct);
+  const correctRate = total ? Math.round(correct * 100 / total) : 0;
+  return `
+    <div class="stats-correct-summary">
+      <div class="stats-correct-summary__counts">
+        <span class="stats-correct-count stats-correct-count--right">✓ 答对 <strong>${correct}</strong> 人</span>
+        <span class="stats-correct-count stats-correct-count--wrong">✕ 答错 <strong>${incorrect}</strong> 人</span>
+        <span class="stats-correct-summary__rate">正确率 <strong>${correctRate}%</strong></span>
+      </div>
+      <div class="stats-correct-summary__track" aria-label="正确率 ${correctRate}%">
+        <span style="width:${correctRate}%"></span>
       </div>
     </div>
+  `;
+}
+
+function renderPredictionComparison(summary) {
+  const rows = [
+    { key: 'correct', label: '猜中', className: 'correct' },
+    { key: 'high', label: '猜高', className: 'high' },
+    { key: 'low', label: '猜低', className: 'low' }
+  ];
+  const effectiveTotal = rows.reduce((sum, row) => sum + (Number(summary?.[row.key]) || 0), 0);
+  const unknown = Number(summary?.unknown) || 0;
+  if (effectiveTotal === 0) {
+    return `
+      <div class="empty">暂无预测与实际分数对比数据</div>
+      ${unknown > 0 ? `<p class="stats-comparison-unknown">未形成对比 ${unknown} 人</p>` : ''}
+    `;
+  }
+  return `
+    <div class="stats-comparison-chart">
+      ${rows.map((row) => {
+        const count = Number(summary?.[row.key]) || 0;
+        const percentage = Math.round(count * 100 / effectiveTotal);
+        return `
+          <div class="stats-comparison-row stats-comparison-row--${row.className}">
+            <div class="stats-bar-row__top">
+              <span class="stats-bar-row__label">${row.label}</span>
+              <span class="stats-bar-row__metrics"><strong>${count}</strong> 人 <em>${percentage}%</em></span>
+            </div>
+            <div class="stats-comparison-row__track"><span style="width:${percentage}%"></span></div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    ${unknown > 0 ? `<p class="stats-comparison-unknown">未形成对比 ${unknown} 人</p>` : ''}
   `;
 }
 

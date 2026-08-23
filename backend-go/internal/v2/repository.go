@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1042,6 +1043,62 @@ func rawAnswerText(raw json.RawMessage) string {
 	return string(raw)
 }
 
+var statsOptionPrefixPattern = regexp.MustCompile(`(?i)^([A-Z])[\.\s、]`)
+var statsOptionScorePattern = regexp.MustCompile(`^(\d+)分`)
+var statsOtherOptionPattern = regexp.MustCompile(`^其[它他](?:[:：_]+)?`)
+
+func statsOptionIdentity(option string, index int) (string, string, bool) {
+	label := strings.TrimSpace(option)
+	normalized := strings.ReplaceAll(label, "＿", "_")
+	normalized = strings.Join(strings.Fields(normalized), "")
+	if statsOtherOptionPattern.MatchString(normalized) {
+		return fmt.Sprintf("other_%d", index), label, true
+	}
+	if match := statsOptionPrefixPattern.FindStringSubmatch(label); len(match) > 1 {
+		return strings.ToUpper(match[1]), label, false
+	}
+	if match := statsOptionScorePattern.FindStringSubmatch(label); len(match) > 1 {
+		return match[1], label, false
+	}
+	return strconv.Itoa(index), label, false
+}
+
+func statsChoiceAnswers(raw json.RawMessage) []string {
+	var values []string
+	if err := json.Unmarshal(raw, &values); err == nil {
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			if value = strings.TrimSpace(value); value != "" {
+				result = append(result, value)
+			}
+		}
+		return result
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err == nil {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return []string{value}
+		}
+	}
+	return nil
+}
+
+func statsOptionAnswerIndex(answer string, aliases map[string]int) (int, bool) {
+	answer = strings.TrimSpace(answer)
+	if index, ok := aliases[answer]; ok {
+		return index, true
+	}
+	if statsOtherOptionPattern.MatchString(strings.Join(strings.Fields(answer), "")) {
+		for alias, index := range aliases {
+			if strings.HasPrefix(alias, "other_") {
+				return index, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func aiChatMessagesFromRaw(raw json.RawMessage) []AIChatMessage {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -1529,6 +1586,57 @@ func (r *Repository) fillCourseStats(stats *StatsSummary, courseID, classID int)
 		ScoreDistribution: map[int]int{},
 	}
 
+	type optionDistributionAccumulator struct {
+		distribution OptionDistribution
+		aliases      map[string]int
+		counts       []int
+	}
+	optionDistributionByQuestion := map[int]*optionDistributionAccumulator{}
+	var optionDistributionOrder []*optionDistributionAccumulator
+	for _, section := range sections {
+		questions, err := r.ListQuestions(section.ID)
+		if err != nil {
+			return err
+		}
+		for _, question := range questions {
+			if !question.Enabled || (question.Type != "single_choice" && question.Type != "multiple_choice") || question.QuestionKey == "fixed_prediction_score" {
+				continue
+			}
+			var options []string
+			if err := json.Unmarshal(question.Options, &options); err != nil || len(options) == 0 {
+				continue
+			}
+			acc := &optionDistributionAccumulator{
+				distribution: OptionDistribution{
+					SectionID:    section.ID,
+					QuestionID:   question.ID,
+					QuestionText: question.Title,
+					QuestionType: question.Type,
+					SortOrder:    question.SortOrder,
+				},
+				aliases: map[string]int{},
+				counts:  make([]int, len(options)),
+			}
+			for index, option := range options {
+				key, label, other := statsOptionIdentity(option, index)
+				acc.aliases[key] = index
+				acc.aliases[strconv.Itoa(index)] = index
+				acc.aliases[strings.TrimSpace(option)] = index
+				if other {
+					label = "其它（自定义）"
+				}
+				acc.distribution.Options = append(acc.distribution.Options, OptionDistributionItem{Label: label})
+			}
+			for _, answer := range statsChoiceAnswers(question.CorrectAnswer) {
+				if optionIndex, ok := statsOptionAnswerIndex(answer, acc.aliases); ok {
+					acc.distribution.Options[optionIndex].IsCorrect = true
+				}
+			}
+			optionDistributionByQuestion[question.ID] = acc
+			optionDistributionOrder = append(optionDistributionOrder, acc)
+		}
+	}
+
 	submissionQuery := `
 		SELECT s.id, s.class_id, s.student_id, s.status, COALESCE(s.updated_at, ''),
 		       sr.predicted_score, sr.actual_score, sr.teacher_score, COALESCE(sr.actual_score_source, 'none'), COALESCE(sr.teacher_score_note, '')
@@ -1670,6 +1778,21 @@ func (r *Repository) fillCourseStats(stats *StatsSummary, courseID, classID int)
 				}
 			}
 		}
+		if acc := optionDistributionByQuestion[questionID]; acc != nil {
+			answers := statsChoiceAnswers(json.RawMessage(answerRaw))
+			if len(answers) > 0 {
+				acc.distribution.RespondentCount++
+			}
+			seen := map[int]bool{}
+			for _, answer := range answers {
+				optionIndex, ok := statsOptionAnswerIndex(answer, acc.aliases)
+				if !ok || seen[optionIndex] {
+					continue
+				}
+				seen[optionIndex] = true
+				acc.counts[optionIndex]++
+			}
+		}
 		if sectionType == "quiz" {
 			acc := questionRates[questionID]
 			if acc == nil {
@@ -1684,6 +1807,16 @@ func (r *Repository) fillCourseStats(stats *StatsSummary, courseID, classID int)
 	}
 	if err := answerRows.Err(); err != nil {
 		return err
+	}
+	for _, acc := range optionDistributionOrder {
+		for index := range acc.distribution.Options {
+			count := acc.counts[index]
+			acc.distribution.Options[index].Count = count
+			if acc.distribution.RespondentCount > 0 {
+				acc.distribution.Options[index].Percentage = int(math.Round(float64(count) * 100 / float64(acc.distribution.RespondentCount)))
+			}
+		}
+		stats.OptionDistributions = append(stats.OptionDistributions, acc.distribution)
 	}
 
 	scoreRows, err := r.db.Query(`
