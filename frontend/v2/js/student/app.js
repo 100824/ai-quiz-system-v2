@@ -483,7 +483,12 @@ function updateStudentHeader(student = null) {
 
 async function loadPage() {
   const classData = await api('/classes');
-  state.classes = classData.classes || [];
+  state.classes = [...(classData.classes || [])].sort((left, right) => (
+    String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN', {
+      numeric: true,
+      sensitivity: 'base'
+    })
+  ));
   renderClassSelector();
   await loadClassScopedData();
 }
