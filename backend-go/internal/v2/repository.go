@@ -49,7 +49,33 @@ func (r *Repository) CreateClass(name, description string) (int, error) {
 	if name == "" {
 		return 0, errors.New("班级名称不能为空")
 	}
-	res, err := r.db.Exec(`INSERT INTO classes (name, description) VALUES (?, ?)`, name, strings.TrimSpace(description))
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var existingID int
+	var deletedAt sql.NullString
+	err = tx.QueryRow(`SELECT id, deleted_at FROM classes WHERE name = ?`, name).Scan(&existingID, &deletedAt)
+	if err == nil {
+		if !deletedAt.Valid {
+			return 0, errors.New("班级名称已存在")
+		}
+		if _, err := tx.Exec(`UPDATE classes SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, existingID); err != nil {
+			return 0, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+		return existingID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+
+	res, err := tx.Exec(`INSERT INTO classes (name, description) VALUES (?, ?)`, name, strings.TrimSpace(description))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return 0, errors.New("班级名称已存在")
@@ -57,6 +83,9 @@ func (r *Repository) CreateClass(name, description string) (int, error) {
 		return 0, err
 	}
 	id, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
 	return int(id), nil
 }
 
