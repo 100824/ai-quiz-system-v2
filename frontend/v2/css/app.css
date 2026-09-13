@@ -2617,6 +2617,10 @@ body.student-page::after {
   margin-bottom: 0;
 }
 
+.student-fill-blank-input {
+  min-height: 160px;
+}
+
 .student-question-card .ai-chat-box {
   margin-top: 10px;
 }

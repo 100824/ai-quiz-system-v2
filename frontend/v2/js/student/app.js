@@ -1422,7 +1422,7 @@ function renderQuestion(question, index = 0) {
   }).join('');
   const answerHtml = question.type === 'single_choice' || question.type === 'multiple_choice'
     ? `<div class="options">${optionHtml}</div>`
-    : `<textarea name="q_${question.id}" placeholder="${t('写下你的想法')}"></textarea>`;
+    : `<textarea class="${question.type === 'fill_blank' ? 'student-fill-blank-input' : ''}" name="q_${question.id}" placeholder="${t('写下你的想法')}"></textarea>`;
   return `
     <div class="item student-question-card" data-question-id="${question.id}">
       ${renderQuestionHeader(question, index)}
