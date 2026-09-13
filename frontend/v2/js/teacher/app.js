@@ -271,7 +271,7 @@ async function loadQuestions() {
   if (addQuestionBtn) {
     addQuestionBtn.disabled = lockedReflectionQuiz;
     addQuestionBtn.textContent = lockedReflectionQuiz ? '第三部分固定 5 题' : '➕ 新增题目';
-    addQuestionBtn.title = lockedReflectionQuiz ? '反思模式第三部分为固定小测，只能编辑题目内容，不能新增或停用题目。' : '';
+    addQuestionBtn.title = lockedReflectionQuiz ? '反思模式第三部分为固定小测，只能编辑题目内容，不能新增或删除题目。' : '';
   }
   renderList($('questionList'), state.questions, (item) => `
     <div class="item">
@@ -288,7 +288,7 @@ async function loadQuestions() {
         <button class="secondary" data-action="edit-question" data-id="${item.id}">编辑</button>
         ${lockedReflectionQuiz
           ? '<span class="badge">固定小测题</span>'
-          : `<button class="danger" data-action="delete-question" data-id="${item.id}">停用</button>`}
+          : `<button class="danger" data-action="delete-question" data-id="${item.id}">删除</button>`}
       </div>
     </div>
   `, '当前部分还没有题目。');
@@ -2215,15 +2215,15 @@ function bindClicks() {
     }
     if (action === 'delete-question') {
       if (isLockedReflectionQuizSection()) {
-        alert('反思模式第三部分固定为 5 道小测题，不能停用或删除题目。');
+        alert('反思模式第三部分固定为 5 道小测题，不能删除题目。');
         return;
       }
-      if (!confirm('确定要停用该题目吗？')) return;
+      if (!confirm('确定要删除该题目吗？已有的作答记录也会同时删除，此操作无法撤销。')) return;
       try {
         await api(`/questions/${id}`, { method: 'DELETE' });
         await loadQuestions();
       } catch (error) {
-        alert(`停用题目失败：${error.message}`);
+        alert(`删除题目失败：${error.message}`);
       }
     }
     if (action === 'toggle-ai-guidance') {

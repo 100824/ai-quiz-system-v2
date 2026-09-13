@@ -757,9 +757,9 @@ func (r *Repository) DeleteQuestion(id int) error {
 	if locked, err := r.isLockedReflectionQuizQuestion(id); err != nil {
 		return err
 	} else if locked {
-		return errors.New("反思模式第三部分固定为 5 道小测题，不能停用或删除题目")
+		return errors.New("反思模式第三部分固定为 5 道小测题，不能删除题目")
 	}
-	_, err := r.db.Exec(`UPDATE questions SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	_, err := r.db.Exec(`DELETE FROM questions WHERE id = ?`, id)
 	return err
 }
 
