@@ -90,7 +90,47 @@ func (r *Repository) CreateClass(name, description string) (int, error) {
 }
 
 func (r *Repository) DeleteClass(id int) error {
-	_, err := r.db.Exec(`UPDATE classes SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE classes SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM app_settings WHERE key = 'default_class_id' AND value = CAST(? AS TEXT)`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) GetDefaultClassID() (int, error) {
+	var classID int
+	err := r.db.QueryRow(`
+		SELECT c.id
+		FROM app_settings s
+		JOIN classes c ON c.id = CAST(s.value AS INTEGER)
+		WHERE s.key = 'default_class_id' AND c.deleted_at IS NULL
+	`).Scan(&classID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return classID, err
+}
+
+func (r *Repository) SetDefaultClassID(classID int) error {
+	var exists int
+	if err := r.db.QueryRow(`SELECT COUNT(1) FROM classes WHERE id = ? AND deleted_at IS NULL`, classID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return errors.New("班级不存在或已删除")
+	}
+	_, err := r.db.Exec(`
+		INSERT INTO app_settings (key, value, updated_at)
+		VALUES ('default_class_id', CAST(? AS TEXT), CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+	`, classID)
 	return err
 }
 

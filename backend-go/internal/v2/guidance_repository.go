@@ -59,6 +59,14 @@ func (r *Repository) GetSectionAIGuidanceConfig(sectionID int) (AIGuidanceConfig
 }
 
 func (r *Repository) SetSectionAIGuidance(sectionID int, enabled bool) (AIGuidanceConfig, error) {
+	config, err := r.GetSectionAIGuidanceConfig(sectionID)
+	if err != nil {
+		return AIGuidanceConfig{}, err
+	}
+	return r.SetSectionAIGuidanceConfig(sectionID, enabled, config.PresetQuestions)
+}
+
+func (r *Repository) SetSectionAIGuidanceConfig(sectionID int, enabled bool, presetQuestions []string) (AIGuidanceConfig, error) {
 	var mode, sectionKey, learningObjective, raw string
 	err := r.db.QueryRow(`
 		SELECT c.mode, cs.section_key, c.learning_objective, cs.rules_json
@@ -72,11 +80,13 @@ func (r *Repository) SetSectionAIGuidance(sectionID int, enabled bool) (AIGuidan
 	if mode != "reflection" || (sectionKey != "prediction" && sectionKey != "reflection") {
 		return AIGuidanceConfig{}, errors.New("AI学习指导仅支持反思模板的第一和第四部分")
 	}
+	section := Section{SectionKey: sectionKey, Rules: json.RawMessage(raw)}
+	existingConfig := parseAIGuidanceConfig(section)
 	var answerCount int
 	if err := r.db.QueryRow(`SELECT COUNT(1) FROM answer_attempts WHERE section_id = ?`, sectionID).Scan(&answerCount); err != nil {
 		return AIGuidanceConfig{}, err
 	}
-	if answerCount > 0 {
+	if answerCount > 0 && enabled != existingConfig.Enabled {
 		return AIGuidanceConfig{}, errors.New("该部分已有学生答题，不能修改AI学习指导开关")
 	}
 	if enabled && strings.TrimSpace(learningObjective) == "" {
@@ -90,14 +100,37 @@ func (r *Repository) SetSectionAIGuidance(sectionID int, enabled bool) (AIGuidan
 	if sectionKey == "reflection" {
 		phase, title = "evaluation", "AI学习评价与反思"
 	}
-	rules["aiGuidance"] = map[string]interface{}{"enabled": enabled, "phase": phase, "title": title}
+	presetQuestions = normalizeAIGuidancePresetQuestions(presetQuestions)
+	rules["aiGuidance"] = AIGuidanceConfig{
+		Enabled:         enabled,
+		Phase:           phase,
+		Title:           title,
+		PresetQuestions: presetQuestions,
+	}
 	encoded, _ := json.Marshal(rules)
 	if _, err := r.db.Exec(`
 		UPDATE course_sections SET rules_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
 	`, string(encoded), sectionID); err != nil {
 		return AIGuidanceConfig{}, err
 	}
-	return AIGuidanceConfig{Enabled: enabled, Phase: phase, Title: title}, nil
+	return AIGuidanceConfig{Enabled: enabled, Phase: phase, Title: title, PresetQuestions: presetQuestions, Locked: answerCount > 0}, nil
+}
+
+func normalizeAIGuidancePresetQuestions(items []string) []string {
+	result := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		result = append(result, truncateRunes(item, 500))
+		if len(result) >= 10 {
+			break
+		}
+	}
+	return result
 }
 
 func (r *Repository) guidanceContext(courseID, classID, studentID, sectionID int) (guidanceContext, error) {

@@ -4,12 +4,16 @@ import { countAnnotatedHighlights, renderAnnotatedAnswer, sanitizeAnnotatedAnswe
 import { renderMarkdown } from '../core/markdown.js';
 import { renderRichText } from '../core/rich-text.js?v=2026071101';
 const t = (value) => value;
+const AI_CHAT_MAX_ROUNDS = 10;
+const AI_CHAT_MAX_MESSAGES = AI_CHAT_MAX_ROUNDS * 2;
+const AI_GUIDANCE_MAX_ROUNDS = 10;
 
 const state = {
   classes: [],
   students: [],
   courses: [],
   selectedClassId: null,
+  defaultClassId: null,
   selectedCourseId: null,
   activeSection: null,
   student: null,
@@ -178,7 +182,7 @@ function normalizeChatMessages(messages = []) {
       content: String(item?.content || '').trim()
     }))
     .filter((item) => item.content && (item.role === 'user' || item.role === 'assistant'))
-    .slice(0, 10);
+    .slice(0, AI_CHAT_MAX_MESSAGES);
 }
 
 function getStoredAIChatMessages(questionId) {
@@ -482,13 +486,17 @@ function updateStudentHeader(student = null) {
 }
 
 async function loadPage() {
-  const classData = await api('/classes');
+  const [classData, defaultClassData] = await Promise.all([
+    api('/classes'),
+    api('/default-class')
+  ]);
   state.classes = [...(classData.classes || [])].sort((left, right) => (
     String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN', {
       numeric: true,
       sensitivity: 'base'
     })
   ));
+  state.defaultClassId = Number(defaultClassData.defaultClassId || 0) || null;
   renderClassSelector();
   await loadClassScopedData();
 }
@@ -497,7 +505,9 @@ function renderClassSelector() {
   $('classSelect').innerHTML = state.classes.length
     ? state.classes.map((item) => `<option value="${item.id}">${safeHtml(item.name)}</option>`).join('')
     : '<option value="">暂无班级</option>';
-  state.selectedClassId = Number($('classSelect').value || state.classes[0]?.id || 0);
+  const preferredClass = state.classes.find((item) => item.id === state.defaultClassId) || state.classes[0];
+  $('classSelect').value = preferredClass ? String(preferredClass.id) : '';
+  state.selectedClassId = Number($('classSelect').value || 0);
 }
 
 async function loadClassScopedData() {
@@ -712,7 +722,16 @@ function renderAIGuidanceModule(section, session = null, streamingContent = null
   const pending = state.aiGuidancePending.has(section.id) || session?.status === 'generating';
   const status = session?.status || (pending ? 'generating' : 'pending');
   const rounds = Number(session?.followUpRounds || 0);
-  const canChat = status === 'ready' && rounds < 5 && !pending;
+  const canChat = status === 'ready' && rounds < AI_GUIDANCE_MAX_ROUNDS && !pending;
+  const presetQuestions = Array.isArray(config.presetQuestions) ? config.presetQuestions : [];
+  const presetHtml = canChat && presetQuestions.length ? `
+    <div class="ai-chat-presets">
+      ${presetQuestions.map((question) => `
+        <button type="button" class="ai-chat-preset-btn ai-guidance-preset-btn"
+          data-section-id="${section.id}">${safeHtml(t(question))}</button>
+      `).join('')}
+    </div>
+  ` : '';
   const phaseHint = config.phase === 'plan'
     ? t('完成学习计划后，可以继续向AI追问，最后点击“完成第一部分”。')
     : t('你可以根据评价继续向AI追问；提交第四部分时会一并确认完成。');
@@ -732,12 +751,13 @@ function renderAIGuidanceModule(section, session = null, streamingContent = null
       ` : `
         <div id="aiGuidanceMessages-${section.id}" class="ai-chat-messages">${renderAIGuidanceMessages(session?.messages || [], pending, streamingContent)}</div>
         ${status === 'ready' ? `
-          <div class="meta">${t(`已追问 ${rounds} / 5 轮`)}</div>
+          <div class="meta">${t(`已追问 ${rounds} / ${AI_GUIDANCE_MAX_ROUNDS} 轮`)}</div>
+          ${presetHtml}
           <div class="ai-chat-input-row">
             <textarea id="aiGuidanceInput-${section.id}" class="ai-chat-input" maxlength="500"
               placeholder="${t('可以继续询问学习计划、错题或下一步怎么做')}" ${canChat ? '' : 'disabled'}></textarea>
             <button type="button" class="ai-chat-send-btn ai-guidance-send-btn" data-section-id="${section.id}" ${canChat ? '' : 'disabled'}>
-              ${t(rounds >= 5 ? '已达上限' : '发送')}
+              ${t(rounds >= AI_GUIDANCE_MAX_ROUNDS ? '已达上限' : '发送')}
             </button>
           </div>
           ${config.phase === 'plan' ? `
@@ -877,6 +897,15 @@ function bindAIGuidanceActions(section) {
   });
   document.querySelector(`.ai-guidance-send-btn[data-section-id="${section.id}"]`)?.addEventListener('click', () => {
     void sendAIGuidanceMessage(section);
+  });
+  document.querySelectorAll(`.ai-guidance-preset-btn[data-section-id="${section.id}"]`).forEach((button) => {
+    button.addEventListener('click', () => {
+      const input = $(`aiGuidanceInput-${section.id}`);
+      if (input && !input.disabled) {
+        input.value = button.textContent.trim();
+        input.focus();
+      }
+    });
   });
   $(`aiGuidanceInput-${section.id}`)?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -1440,7 +1469,7 @@ function renderQuestion(question, index = 0) {
 function renderAIChatQuestion(question, index = 0) {
   const messages = latestQuestionChatMessages(question.id);
   const rounds = countAIRounds(messages);
-  const reachedLimit = rounds >= 5;
+  const reachedLimit = rounds >= AI_CHAT_MAX_ROUNDS;
   const pending = state.aiChatPending.get(aiChatKey(question.id)) === true;
   setStoredAIChatMessages(question.id, messages);
   const presets = Array.isArray(question.rules?.presetQuestions) ? question.rules.presetQuestions : [];
@@ -1456,7 +1485,7 @@ function renderAIChatQuestion(question, index = 0) {
       <div class="item-title student-question-title">${renderRichText(t(normalizeAIChatTitle(question.title)))}</div>
       ${question.description ? `<div class="meta student-question-description">${renderRichText(t(question.description))}</div>` : ''}
       <div class="student-question-answer">
-        <div class="meta student-question-type" id="ai-chat-rounds-${question.id}">${safeHtml(t(`已对话 ${rounds} / 5 轮`))}</div>
+        <div class="meta student-question-type" id="ai-chat-rounds-${question.id}">${safeHtml(t(`已对话 ${rounds} / ${AI_CHAT_MAX_ROUNDS} 轮`))}</div>
         <div class="ai-chat-box">
           <div id="ai-chat-messages-${question.id}" class="ai-chat-messages${messagesHiddenClass}">${renderAIChatMessages(messages, pending)}</div>
           ${presetHtml}
@@ -1464,7 +1493,7 @@ function renderAIChatQuestion(question, index = 0) {
             <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="${t('请输入学习相关的问题，也可以点击上方预设问题')}" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
             <button type="button" class="ai-chat-send-btn" data-question-id="${question.id}" ${reachedLimit ? 'disabled' : ''}>${t(reachedLimit ? '已达上限' : '发送')}</button>
           </div>
-          <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? t('已达到 5 轮上限，可以提交本部分。') : t(AI_CHAT_GUIDE_TEXT)}</div>
+          <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? t(`已达到 ${AI_CHAT_MAX_ROUNDS} 轮上限，可以提交本部分。`) : t(AI_CHAT_GUIDE_TEXT)}</div>
         </div>
       </div>
     </div>
@@ -1576,18 +1605,18 @@ function updateAIChatView(questionId, messages, pending = false, streamingConten
   }
   const rounds = countAIRounds(normalized);
   const roundsNode = $(`ai-chat-rounds-${questionId}`);
-  if (roundsNode) roundsNode.textContent = t(`已对话 ${rounds} / 5 轮`);
+  if (roundsNode) roundsNode.textContent = t(`已对话 ${rounds} / ${AI_CHAT_MAX_ROUNDS} 轮`);
   const input = $(`ai-chat-input-${questionId}`);
   const sendBtn = document.querySelector(`.ai-chat-send-btn[data-question-id="${questionId}"]`);
   const statusNode = $(`ai-chat-status-${questionId}`);
-  const reachedLimit = rounds >= 5;
+  const reachedLimit = rounds >= AI_CHAT_MAX_ROUNDS;
   if (input) input.disabled = reachedLimit || pending;
   if (sendBtn) {
     sendBtn.disabled = reachedLimit || pending;
     sendBtn.textContent = t(pending ? '思考中' : (reachedLimit ? '已达上限' : '发送'));
   }
   if (statusNode && reachedLimit) {
-    statusNode.textContent = t('已达到 5 轮上限，可以提交本部分。');
+    statusNode.textContent = t(`已达到 ${AI_CHAT_MAX_ROUNDS} 轮上限，可以提交本部分。`);
   }
   syncQuestionCardState(messagesNode?.closest('.student-question-card'));
 }
@@ -1779,7 +1808,7 @@ async function sendAIChatMessage(questionId) {
     return;
   }
   const messages = getStoredAIChatMessages(questionId);
-  if (countAIRounds(messages) >= 5) {
+  if (countAIRounds(messages) >= AI_CHAT_MAX_ROUNDS) {
     updateAIChatView(questionId, messages, false);
     return;
   }
@@ -1815,7 +1844,7 @@ async function sendAIChatMessage(questionId) {
     const nextMessages = normalizeChatMessages(data.messages || []);
     setStoredAIChatMessages(questionId, nextMessages);
     updateAIChatView(questionId, nextMessages, false);
-    if ($(`ai-chat-status-${questionId}`) && countAIRounds(nextMessages) < 5) {
+    if ($(`ai-chat-status-${questionId}`) && countAIRounds(nextMessages) < AI_CHAT_MAX_ROUNDS) {
       $(`ai-chat-status-${questionId}`).textContent = t('本题已完成至少一轮对话，可以提交本部分，也可以继续追问。');
     }
   } catch (error) {

@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const maxAIGuidanceFollowUpRounds = 10
+
 func (h *Handler) HandleGetSectionAIGuidance(w http.ResponseWriter, r *http.Request) {
 	sectionID, err := pathInt(r, "id")
 	if err != nil {
@@ -32,13 +34,27 @@ func (h *Handler) HandleSetSectionAIGuidance(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var body struct {
-		Enabled bool `json:"enabled"`
+		Enabled         *bool     `json:"enabled"`
+		PresetQuestions *[]string `json:"presetQuestions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
 		return
 	}
-	config, err := h.repo.SetSectionAIGuidance(sectionID, body.Enabled)
+	current, err := h.repo.GetSectionAIGuidanceConfig(sectionID)
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+	enabled := current.Enabled
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	presetQuestions := current.PresetQuestions
+	if body.PresetQuestions != nil {
+		presetQuestions = *body.PresetQuestions
+	}
+	config, err := h.repo.SetSectionAIGuidanceConfig(sectionID, enabled, presetQuestions)
 	if err != nil {
 		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
 		return
@@ -68,7 +84,7 @@ func (h *Handler) HandleGetStudentAIGuidance(w http.ResponseWriter, r *http.Requ
 	h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
 		"aiGuidance": config,
 		"session":    session,
-		"maxRounds":  5,
+		"maxRounds":  maxAIGuidanceFollowUpRounds,
 	}})
 }
 
@@ -189,8 +205,8 @@ func (h *Handler) HandleStudentAIGuidanceMessage(w http.ResponseWriter, r *http.
 		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "当前AI学习指导已完成或尚未生成"})
 		return
 	}
-	if session.FollowUpRounds >= 5 {
-		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "最多支持5轮追问"})
+	if session.FollowUpRounds >= maxAIGuidanceFollowUpRounds {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "最多支持10轮追问"})
 		return
 	}
 	snapshot, err := h.repo.AIGuidanceSnapshot(session.ID)
@@ -221,7 +237,7 @@ func (h *Handler) HandleStudentAIGuidanceMessage(w http.ResponseWriter, r *http.
 		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
 	}
-	_ = writeAIStreamEvent(w, "done", map[string]interface{}{"session": session, "maxRounds": 5})
+	_ = writeAIStreamEvent(w, "done", map[string]interface{}{"session": session, "maxRounds": maxAIGuidanceFollowUpRounds})
 }
 
 func (h *Handler) HandleCompleteStudentAIGuidance(w http.ResponseWriter, r *http.Request) {

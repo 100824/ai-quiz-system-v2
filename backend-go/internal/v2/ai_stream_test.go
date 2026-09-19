@@ -79,6 +79,23 @@ func TestStreamDeepSeekDoesNotTruncateLongOutput(t *testing.T) {
 	}
 }
 
+func TestSanitizeAIChatMessagesKeepsTenRounds(t *testing.T) {
+	messages := make([]AIChatMessage, 0, 22)
+	for i := 1; i <= 11; i++ {
+		messages = append(messages,
+			AIChatMessage{Role: "user", Content: fmt.Sprintf("question %d", i)},
+			AIChatMessage{Role: "assistant", Content: fmt.Sprintf("answer %d", i)},
+		)
+	}
+	sanitized := sanitizeAIChatMessages(messages)
+	if len(sanitized) != maxAIChatRounds*2 {
+		t.Fatalf("sanitized message count = %d, want %d", len(sanitized), maxAIChatRounds*2)
+	}
+	if rounds := countAIRounds(sanitized); rounds != maxAIChatRounds {
+		t.Fatalf("sanitized round count = %d, want %d", rounds, maxAIChatRounds)
+	}
+}
+
 func mustJSONStreamChunk(content string) string {
 	payload, err := json.Marshal(map[string]interface{}{
 		"choices": []map[string]interface{}{{

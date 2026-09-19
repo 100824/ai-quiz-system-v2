@@ -18,6 +18,8 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+const maxAIChatRounds = 10
+
 type Handler struct {
 	repo          *Repository
 	guidanceLocks sync.Map
@@ -38,6 +40,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/classes", h.HandleListClasses)
 	mux.HandleFunc("POST /api/v2/classes", h.HandleCreateClass)
 	mux.HandleFunc("DELETE /api/v2/classes/{id}", h.HandleDeleteClass)
+	mux.HandleFunc("GET /api/v2/default-class", h.HandleGetDefaultClass)
+	mux.HandleFunc("PUT /api/v2/default-class", h.HandleSetDefaultClass)
 	mux.HandleFunc("GET /api/v2/classes/{id}/students", h.HandleListStudents)
 	mux.HandleFunc("POST /api/v2/classes/{id}/students", h.HandleCreateStudent)
 	mux.HandleFunc("POST /api/v2/classes/{id}/students/batch", h.HandleCreateStudentsBatch)
@@ -131,6 +135,30 @@ func (h *Handler) HandleListClasses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"classes": items}})
+}
+
+func (h *Handler) HandleGetDefaultClass(w http.ResponseWriter, r *http.Request) {
+	classID, err := h.repo.GetDefaultClassID()
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]int{"defaultClassId": classID}})
+}
+
+func (h *Handler) HandleSetDefaultClass(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ClassID int `json:"classId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+	if err := h.repo.SetDefaultClassID(body.ClassID); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+	h.writeJSON(w, http.StatusOK, APIResponse{Success: true})
 }
 
 func (h *Handler) HandleCreateClass(w http.ResponseWriter, r *http.Request) {
@@ -566,8 +594,8 @@ func (h *Handler) HandleStudentAIChat(w http.ResponseWriter, r *http.Request) {
 
 	history := sanitizeAIChatMessages(body.Messages)
 	rounds := countAIRounds(history)
-	if rounds >= 5 {
-		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "单个 AI 对话题最多支持 5 轮对话"})
+	if rounds >= maxAIChatRounds {
+		h.writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "单个 AI 对话题最多支持 10 轮对话"})
 		return
 	}
 	history = append(history, AIChatMessage{Role: "user", Content: userMessage})
@@ -596,7 +624,7 @@ func (h *Handler) HandleStudentAIChat(w http.ResponseWriter, r *http.Request) {
 		"assistantMessage": answer,
 		"messages":         history,
 		"rounds":           rounds + 1,
-		"maxRounds":        5,
+		"maxRounds":        maxAIChatRounds,
 	})
 }
 
@@ -719,7 +747,7 @@ func sanitizeAIChatMessages(messages []AIChatMessage) []AIChatMessage {
 			content = truncateRunes(content, 500)
 		}
 		result = append(result, AIChatMessage{Role: role, Content: content})
-		if len(result) >= 10 {
+		if len(result) >= maxAIChatRounds*2 {
 			break
 		}
 	}

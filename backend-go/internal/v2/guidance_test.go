@@ -30,6 +30,12 @@ func setupGuidanceTestRepository(t *testing.T) (*sql.DB, *Repository) {
 	return db, NewRepository(db)
 }
 
+func TestAIGuidanceFollowUpLimitIsTenRounds(t *testing.T) {
+	if maxAIGuidanceFollowUpRounds != 10 {
+		t.Fatalf("AI guidance follow-up limit = %d, want 10", maxAIGuidanceFollowUpRounds)
+	}
+}
+
 func TestReflectionAIGuidanceDefaultsAndCompletion(t *testing.T) {
 	db, repo := setupGuidanceTestRepository(t)
 	defer db.Close()
@@ -59,6 +65,17 @@ func TestReflectionAIGuidanceDefaultsAndCompletion(t *testing.T) {
 	}
 	if _, err := repo.SetSectionAIGuidance(sections[3].ID, true); err != nil {
 		t.Fatal(err)
+	}
+	presetInput := []string{
+		"  我应该先改进哪个方面？  ", "我应该先改进哪个方面？", "如何检查学习成果？",
+		"问题3", "问题4", "问题5", "问题6", "问题7", "问题8", "问题9", "问题10", "问题11",
+	}
+	planConfig, err = repo.SetSectionAIGuidanceConfig(sections[0].ID, true, presetInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planConfig.PresetQuestions) != 10 || planConfig.PresetQuestions[0] != "我应该先改进哪个方面？" {
+		t.Fatalf("unexpected normalized preset questions: %#v", planConfig.PresetQuestions)
 	}
 	classID, err := repo.CreateClass("指导测试班", "")
 	if err != nil {
@@ -242,6 +259,13 @@ func TestReflectionAIGuidanceDefaultsAndCompletion(t *testing.T) {
 	}
 	if _, err := repo.SetSectionAIGuidance(sections[0].ID, false); err == nil {
 		t.Fatal("guidance switch must lock after section answers exist")
+	}
+	updatedConfig, err := repo.SetSectionAIGuidanceConfig(sections[0].ID, true, []string{"作答后仍可更新的预设问题"})
+	if err != nil {
+		t.Fatalf("preset questions should remain editable after answers exist: %v", err)
+	}
+	if !updatedConfig.Locked || len(updatedConfig.PresetQuestions) != 1 {
+		t.Fatalf("unexpected updated locked config: %#v", updatedConfig)
 	}
 }
 

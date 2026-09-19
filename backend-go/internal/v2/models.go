@@ -74,10 +74,11 @@ type AIGuidanceSession struct {
 }
 
 type AIGuidanceConfig struct {
-	Enabled bool   `json:"enabled"`
-	Phase   string `json:"phase"`
-	Title   string `json:"title"`
-	Locked  bool   `json:"locked,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	Phase           string   `json:"phase"`
+	Title           string   `json:"title"`
+	PresetQuestions []string `json:"presetQuestions,omitempty"`
+	Locked          bool     `json:"locked,omitempty"`
 }
 
 type AIGuidancePhaseStats struct {

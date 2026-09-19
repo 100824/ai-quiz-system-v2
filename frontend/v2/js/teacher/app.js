@@ -11,6 +11,7 @@ const state = {
   templates: [],
   courses: [],
   selectedClassId: null,
+  defaultClassId: null,
   selectedCourseId: null,
   selectedSectionId: null,
   sections: [],
@@ -65,19 +66,22 @@ function renderList(node, items, renderer, emptyText) {
 
 async function loadAll() {
   $('apiBase').textContent = apiBase();
-  const [classData, templateData, courseData] = await Promise.all([
+  const [classData, templateData, courseData, defaultClassData] = await Promise.all([
     api('/classes'),
     api('/course-templates'),
-    api('/courses')
+    api('/courses'),
+    api('/default-class')
   ]);
   state.classes = classData.classes || [];
   state.templates = templateData.templates || [];
   state.courses = courseData.courses || [];
+  state.defaultClassId = Number(defaultClassData.defaultClassId || 0) || null;
   if (!state.selectedClassId && state.classes[0]) state.selectedClassId = state.classes[0].id;
   if (!state.selectedCourseId && state.courses[0]) state.selectedCourseId = state.courses[0].id;
   renderTemplateOptions();
   await loadClassCourseBindings();
   renderClasses();
+  renderDefaultClassControl();
   renderCourses();
   await loadSections();
   await loadStudents();
@@ -116,6 +120,37 @@ function renderClasses() {
     $('classInfo').classList.add('empty');
   }
   renderClassCourseBinding();
+}
+
+function renderDefaultClassControl() {
+  const button = $('setDefaultClassBtn');
+  const status = $('defaultClassStatus');
+  if (!button || !status) return;
+  const selectedClass = state.classes.find((item) => item.id === state.selectedClassId);
+  const defaultClass = state.classes.find((item) => item.id === state.defaultClassId);
+  const isSelectedDefault = Boolean(selectedClass && selectedClass.id === state.defaultClassId);
+  button.disabled = !selectedClass || isSelectedDefault;
+  button.textContent = isSelectedDefault ? '✓ 已设为默认班级' : '设为学生端默认班级';
+  status.textContent = defaultClass ? `学生端默认：${defaultClass.name}` : '尚未设置默认班级';
+}
+
+async function setDefaultClass() {
+  if (!state.selectedClassId) {
+    alert('请先选择班级');
+    return;
+  }
+  try {
+    await api('/default-class', {
+      method: 'PUT',
+      body: JSON.stringify({ classId: state.selectedClassId })
+    });
+    state.defaultClassId = state.selectedClassId;
+    renderDefaultClassControl();
+    const selectedClass = state.classes.find((item) => item.id === state.selectedClassId);
+    alert(`已将${selectedClass?.name || '当前班级'}设为学生端默认班级`);
+  } catch (error) {
+    alert(`设置默认班级失败：${error.message}`);
+  }
 }
 
 async function loadClassCourseBindings() {
@@ -307,6 +342,7 @@ function renderAIGuidanceSettingCard(config) {
   const objectiveMissing = !String(course?.learningObjective || '').trim();
   const disabled = config.locked || (objectiveMissing && !config.enabled);
   const stateText = config.enabled ? '已开启' : '未开启';
+  const presetQuestions = Array.isArray(config.presetQuestions) ? config.presetQuestions : [];
   return `
     <div class="item ai-guidance-setting-card ${config.enabled ? 'is-enabled' : ''}">
       <div class="item-title">
@@ -316,10 +352,16 @@ function renderAIGuidanceSettingCard(config) {
       <div class="meta">反思模板固定能力 · 不计入题目数量，不能新增、删除或移动。</div>
       ${objectiveMissing ? '<div class="warning-message">请先在“课堂设置”中填写学习目标，才能开启。</div>' : ''}
       ${config.locked ? '<div class="meta">该部分已有学生答题，开关已锁定。</div>' : ''}
+      <label for="aiGuidancePresetQuestions-${state.selectedSectionId}">预设问题（每行一个，最多 10 个）</label>
+      <textarea id="aiGuidancePresetQuestions-${state.selectedSectionId}" class="ai-guidance-preset-editor"
+        placeholder="例如：我应该先改进哪个方面？">${escapeHtml(presetQuestions.join('\n'))}</textarea>
       <div class="question-actions">
         <button type="button" data-action="toggle-ai-guidance" data-id="${state.selectedSectionId}"
           data-enabled="${config.enabled ? '1' : '0'}" ${disabled ? 'disabled' : ''}>
           ${config.enabled ? '关闭AI学习指导' : '开启AI学习指导'}
+        </button>
+        <button type="button" class="secondary" data-action="save-ai-guidance-presets" data-id="${state.selectedSectionId}">
+          保存预设问题
         </button>
       </div>
     </div>
@@ -2106,6 +2148,7 @@ function bindForms() {
   });
 
   $on('saveClassCourseBindingBtn', 'click', saveClassCourseBinding);
+  $on('setDefaultClassBtn', 'click', setDefaultClass);
   $on('classCourseBindingList', 'change', (event) => {
     const input = event.target.closest('input[type="checkbox"]');
     if (!input) return;
@@ -2237,6 +2280,28 @@ function bindClicks() {
         alert(nextEnabled ? 'AI学习指导已开启' : 'AI学习指导已关闭');
       } catch (error) {
         alert(`修改AI学习指导失败：${error.message}`);
+      }
+    }
+    if (action === 'save-ai-guidance-presets') {
+      const editor = $(`aiGuidancePresetQuestions-${id}`);
+      const presetQuestions = String(editor?.value || '')
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 10);
+      try {
+        const data = await api(`/sections/${id}/ai-guidance`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            enabled: Boolean(state.aiGuidanceConfig?.enabled),
+            presetQuestions
+          })
+        });
+        state.aiGuidanceConfig = data.aiGuidance || state.aiGuidanceConfig;
+        await loadQuestions();
+        alert('预设问题已保存');
+      } catch (error) {
+        alert(`保存预设问题失败：${error.message}`);
       }
     }
     if (action === 'save-score') {
