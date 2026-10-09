@@ -2466,6 +2466,37 @@ body.student-page::after {
   border-color: rgba(52, 199, 89, 0.2);
 }
 
+.student-completed-review > summary {
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.student-completed-review > summary::-webkit-details-marker {
+  display: none;
+}
+
+.student-review-expand,
+.student-review-collapse {
+  margin-left: auto;
+  color: #3a5a8a;
+  font-size: 14px;
+}
+
+.student-review-collapse,
+.student-completed-review[open] .student-review-expand {
+  display: none;
+}
+
+.student-completed-review[open] .student-review-collapse {
+  display: inline;
+}
+
+.student-completed-content {
+  margin-top: 20px;
+}
+
 .student-stage-block--waiting {
   border-color: rgba(240, 192, 64, 0.2);
 }
@@ -2497,12 +2528,14 @@ body.student-page::after {
 }
 
 /* Keep each active question visually independent, especially in part two. */
-.student-stage-block > .list {
+.student-stage-block > .list,
+.student-completed-content .student-completed-attempt > .list {
   display: grid;
   gap: 28px;
 }
 
-.student-stage-block > .list > .item {
+.student-stage-block > .list > .item,
+.student-completed-content .student-completed-attempt > .list > .item {
   margin: 0;
   padding: 24px;
   border: 1px solid rgba(91, 155, 213, 0.28);
@@ -2521,7 +2554,8 @@ body.student-page::after {
     box-shadow 180ms ease;
 }
 
-.student-stage-block > .list > .item:hover {
+.student-stage-block > .list > .item:hover,
+.student-completed-content .student-completed-attempt > .list > .item:hover {
   transform: none;
   border-color: rgba(91, 155, 213, 0.42);
   background-color: #ffffff;
@@ -2530,7 +2564,8 @@ body.student-page::after {
     0 2px 8px rgba(43, 91, 145, 0.05);
 }
 
-.student-stage-block > .list > .student-question-card:focus-within {
+.student-stage-block > .list > .student-question-card:focus-within,
+.student-completed-content .student-completed-attempt > .list > .student-question-card:focus-within {
   border-color: rgba(69, 142, 215, 0.72);
   box-shadow:
     0 0 0 4px rgba(91, 155, 213, 0.12),
@@ -2668,6 +2703,11 @@ body.student-page::after {
 
 .section-submit-result {
   margin-top: 16px;
+}
+
+.student-page #sectionSubmitWrap:not(:empty),
+.student-page #quizRetrySubmitWrap:not(:empty) {
+  margin-top: 24px;
 }
 
 .success-message,
@@ -3514,11 +3554,13 @@ body.student-page::after {
     padding: 18px 14px;
   }
 
-  .student-stage-block > .list {
+  .student-stage-block > .list,
+  .student-completed-content .student-completed-attempt > .list {
     gap: 22px;
   }
 
-  .student-stage-block > .list > .item {
+  .student-stage-block > .list > .item,
+  .student-completed-content .student-completed-attempt > .list > .item {
     padding: 18px 16px;
     border-radius: 20px;
   }

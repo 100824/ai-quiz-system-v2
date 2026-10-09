@@ -22,6 +22,7 @@ const state = {
   currentQuestions: [],
   submissionDetail: null,
   sectionDetailMap: new Map(),
+  completedQuestionTemplates: new Map(),
   lastQuizResult: null,
   lastQuizResultKey: '',
   aiChatMessages: new Map(),
@@ -127,6 +128,10 @@ function latestQuizAttemptResult(sectionId) {
   const attempts = detail?.attempts || [];
   const latestAttempt = attempts.length ? attempts[attempts.length - 1] : null;
   if (!latestAttempt) return null;
+  return quizAttemptResult(latestAttempt);
+}
+
+function quizAttemptResult(latestAttempt) {
   const results = (latestAttempt.questions || []).map((question) => ({
     question: question.questionText || '',
     studentAnswer: question.answer || '',
@@ -326,66 +331,102 @@ window.addEventListener('resize', () => {
   applyTipLayout(!!blackboard && blackboard.style.display !== 'none');
 });
 
-function renderCompletedQuestion(question, index) {
-  if (question.questionType === 'ai_chat' || question.chatMessages?.length) {
-    return `
-      <div class="answer-item correct ai-chat-completed">
-        <h4>${index + 1}. ${renderRichText(question.questionText || '')}</h4>
-        <div class="meta">${t('AI 对话记录')}</div>
-        ${renderAIChatTranscript(question.chatMessages || [])}
-      </div>
-    `;
-  }
-  if (question.questionType === 'open_text') {
-    return `
-      <div class="answer-item correct answer-item--open-text">
-        <h4>${index + 1}. ${renderRichText(question.questionText || '')}</h4>
-        <div class="annotated-answer-block">
-          <strong>${t('你的作答')}</strong>
-          <div class="annotated-answer-content">${renderAnnotatedAnswer(question.answer)}</div>
-        </div>
-        ${question.explanation ? `<div class="open-text-reference"><strong>${t('参考解析')}</strong><div>${renderRichExplanationContent(question.explanation)}</div></div>` : ''}
-      </div>
-    `;
-  }
-  const isCorrect = !!question.isCorrect;
-  const answerText = question.answer ? renderPlainText(question.answer) : t('未填写');
-  const correctText = question.correctAnswer ? renderPlainText(question.correctAnswer) : '-';
-  return `
-    <div class="answer-item ${isCorrect ? 'correct' : 'incorrect'}">
-      <h4>
-        ${index + 1}. ${renderRichText(question.questionText || '')}
-        <span class="${isCorrect ? 'correct-mark' : 'incorrect-mark'}">${isCorrect ? `✅ ${t('正确')}` : `❌ ${t('错误')}`}</span>
-      </h4>
-      <p>${t('你的答案：')}<strong class="${isCorrect ? 'student-answer-text--correct' : 'student-answer-text--wrong'}">${answerText}</strong></p>
-      <p>${t('正确答案：')}<strong class="student-answer-text--correct">${correctText}</strong></p>
-      <p class="explanation"><span class="label">${t('解析：')}</span><span class="content">${renderRichExplanationContent(question.explanation || '')}</span></p>
-    </div>
-  `;
+async function loadCompletedQuestionTemplates() {
+  await Promise.all(state.sections.filter((section) => state.completedSectionIds.has(section.id)).map(async (section) => {
+    if (state.completedQuestionTemplates.has(section.id)) return;
+    try {
+      const data = await api(`/sections/${section.id}/questions`);
+      state.completedQuestionTemplates.set(section.id, data.questions || []);
+    } catch (error) {
+      console.warn('加载已完成部分题目失败', error);
+    }
+  }));
 }
 
-function renderCompletedSection(section, index) {
-  const isFinalizedRetryQuiz = section.type === 'quiz'
-    && section.rules?.allowRetry === true;
+function renderCompletedQuestion(question, index, sectionId) {
+  const original = (state.completedQuestionTemplates.get(sectionId) || []).find((item) => Number(item.id) === Number(question.questionId));
+  const definition = {
+    ...original,
+    id: question.questionId,
+    title: question.questionText,
+    type: question.questionType,
+    rules: question.rules || original?.rules || {}
+  };
+  const template = document.createElement('template');
+  template.innerHTML = definition.type === 'ai_chat'
+    ? renderAIChatQuestion(definition, index, question.chatMessages || [])
+    : renderQuestion(definition, index);
+  const content = template.content;
+  const answer = String(question.answer ?? '');
+  const selected = definition.type === 'multiple_choice' ? answer.split('、') : [answer];
+  content.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach((input) => {
+    const option = input.closest('.option, .rating-option');
+    const otherAnswer = selected.find((value) => /^其[它他][:：]/.test(value));
+    const checked = selected.includes(input.value) || (option?.dataset.otherOption === 'true' && !!otherAnswer);
+    if (checked) input.setAttribute('checked', '');
+    option?.classList.toggle('selected', checked);
+    const otherInput = option?.querySelector('.choice-other-input');
+    if (otherInput) {
+      otherInput.setAttribute('value', checked ? (otherAnswer || '').replace(/^其[它他][:：]/, '') : '');
+      otherInput.hidden = !checked;
+      option.classList.toggle('option--other-active', checked);
+    }
+  });
+  content.querySelectorAll('textarea:not(.ai-chat-input)').forEach((input) => { input.textContent = answer; });
+  content.querySelectorAll('.student-open-editor').forEach((editor) => {
+    editor.innerHTML = renderAnnotatedAnswer(answer);
+    editor.classList.add('is-locked');
+  });
+  content.querySelectorAll('input, textarea, select, button').forEach((input) => {
+    if (!input.classList.contains('ai-chat-copy-btn')) input.setAttribute('disabled', '');
+  });
+  content.querySelectorAll('[contenteditable]').forEach((editor) => editor.setAttribute('contenteditable', 'false'));
+  content.querySelectorAll('[id], [name], [for], [onclick]').forEach((node) => {
+    for (const attribute of ['id', 'name', 'for', 'onclick']) node.removeAttribute(attribute);
+  });
+  content.querySelector('.student-question-card')?.classList.add('student-question-card--answered');
+  return template.innerHTML;
+}
+
+function renderCompletedSection(section, index, allowRetry = false) {
+  const attempts = getSectionDetail(section.id)?.attempts || [];
+  const config = aiGuidanceConfig(section);
+  const session = state.aiGuidanceSessions.get(Number(section.id));
+  const reviewHtml = attempts.map((attempt) => `
+    <div class="student-completed-attempt">
+      ${attempts.length > 1 ? `<h4>${t(Number(attempt.attemptNo) > 1 ? '重测记录' : '首次作答')}</h4>` : ''}
+      ${section.type === 'quiz'
+        ? `<div id="completedQuizResult-${section.id}-${attempt.attemptNo}" class="quiz-result-page"></div>`
+        : `<div class="list">${(attempt.questions || []).map((question, questionIndex) => renderCompletedQuestion(question, questionIndex, section.id)).join('')}</div>`}
+    </div>
+  `).join('');
+  const guidanceHtml = config && session ? `
+    <div class="ai-guidance-student-card">
+      <div class="item-title"><span>${safeHtml(t(config.title || 'AI学习指导'))}</span><span class="badge">${t('已完成')}</span></div>
+      ${session.status === 'skipped' ? `<p class="meta">${t('已跳过本次指导')}</p>` : ''}
+      <div class="ai-chat-messages">${renderAIGuidanceMessages(session.messages || [])}</div>
+    </div>
+  ` : '';
   return `
-    <section class="student-quiz-block student-stage-block student-stage-block--done" data-section-id="${section.id}">
-      <div class="student-quiz-head">
+    <details class="student-quiz-block student-stage-block student-stage-block--done student-completed-review" data-section-id="${section.id}" data-quiz-result-section-id="${section.id}">
+      <summary class="student-quiz-head">
         <span class="student-quiz-tag">${t('已完成')}</span>
         <h3>${safeHtml(t(section.title || `第${index + 1}部分`))}</h3>
+        <span class="student-review-expand">${t('展开查看')} ▾</span>
+        <span class="student-review-collapse">${t('收起')} ▴</span>
+      </summary>
+      <div class="student-completed-content">
+        ${reviewHtml || guidanceHtml ? reviewHtml + guidanceHtml : `<div class="empty">${t('暂未加载到已提交内容，请刷新页面后重试。')}</div>`}
+        ${allowRetry ? `<div id="quizRetrySubmitWrap"></div>` : ''}
       </div>
-      ${isFinalizedRetryQuiz
-        ? `<div id="completedQuizResult-${section.id}" class="quiz-result-page" data-quiz-result-section-id="${section.id}"></div>`
-        : `
-            <div class="waiting-message">
-              <div class="emoji">✅</div>
-              <p>${t('该部分已完成，等待老师开启下一部分。')}</p>
-            </div>
-          `}
-    </section>
+    </details>
   `;
 }
 
 function renderRetryableQuizSection(section, index) {
+  if (state.retryingQuizSectionId !== section.id) {
+    return renderCompletedSection(section, index, true);
+  }
   return `
     <section class="student-quiz-block student-stage-block student-stage-block--active student-stage-block--retry" data-section-id="${section.id}">
       <div class="student-quiz-head">
@@ -522,6 +563,7 @@ async function loadClassScopedData() {
   state.activeSection = null;
   state.classroom = null;
   state.sections = [];
+  state.completedQuestionTemplates = new Map();
   state.currentQuestions = [];
   state.lastQuizResult = null;
   state.lastQuizResultKey = '';
@@ -1073,6 +1115,8 @@ async function refreshClassroomState(options = {}) {
 }
 
 async function renderClassroom(student) {
+  const expandedReviews = getExpandedReviews();
+  await loadCompletedQuestionTemplates();
   const previousActiveSectionId = state.activeSection?.id || null;
   const blackboard = normalizeBlackboard(state.classroom?.blackboard);
   const stageID = Number(state.classroom?.stageId || 0);
@@ -1169,31 +1213,11 @@ async function renderClassroom(student) {
       ${sectionHtml.join('')}
     </div>
   `;
+  restoreExpandedReviews(expandedReviews);
+  renderCompletedQuizResults();
   if (!state.pendingQuizResultScrollSectionId) {
     scrollToNewActiveSection(previousActiveSectionId, state.activeSection?.id || null);
   }
-  // After the one permitted retake, keep the third part visible with the same
-  // result-card presentation as the first attempt instead of falling back to
-  // the generic completed-answer layout.
-  visibleSections
-    .filter((section) => (
-      section.type === 'quiz'
-      && section.rules?.allowRetry === true
-      && state.completedSectionIds.has(section.id)
-      && !canRetryQuizSection(section.id)
-    ))
-    .forEach((section) => {
-      const resultData = latestQuizAttemptResult(section.id);
-      if (resultData) {
-        renderQuizResult(
-          resultData,
-          true,
-          `completedQuizResult-${section.id}`,
-          '',
-          t('本次重测已完成，系统仅记录第一次提交的小测分数。')
-        );
-      }
-    });
   if (retryableQuizIndex >= 0) {
     const quizSection = state.sections[retryableQuizIndex];
     const data = await api(`/sections/${quizSection.id}/questions`);
@@ -1207,7 +1231,6 @@ async function renderClassroom(student) {
     }
     const sectionSubmitWrap = $('quizRetrySubmitWrap');
     if (sectionSubmitWrap) {
-      const resultData = latestQuizAttemptResult(quizSection.id) || loadQuizResultCache();
       if (state.retryingQuizSectionId === quizSection.id) {
         sectionSubmitWrap.innerHTML = `
           <div id="quizRetryResultPage" class="quiz-result-page hidden"></div>
@@ -1216,18 +1239,12 @@ async function renderClassroom(student) {
         `;
       } else {
         sectionSubmitWrap.innerHTML = `
-          <div id="quizRetryResultPage" class="quiz-result-page"></div>
           <div class="student-complete-actions">
             <button type="button" id="startQuizRetryBtn" class="student-history-jump-btn">${t('再测一次')}</button>
             <span class="student-retry-description">${t('你可以再次完成小测来复习巩固，但系统只记录第一次提交的小测分数。')}</span>
           </div>
           <div id="quizRetrySubmitResult" class="section-submit-result"></div>
         `;
-        if (resultData) {
-          renderQuizResult(resultData, true, 'quizRetryResultPage', 'quizRetrySubmitResult');
-        } else {
-          $('quizRetryResultPage').innerHTML = `<div class="empty">${t('暂未找到小测结果，请刷新后重试。')}</div>`;
-        }
       }
     }
     $('submitQuizRetryBtn')?.addEventListener('click', () => submitQuizRetry(quizSection, questions));
@@ -1308,7 +1325,26 @@ async function renderClassroom(student) {
   scrollToPendingQuizResult();
 }
 
+function getExpandedReviews() {
+  return new Set(Array.from(document.querySelectorAll('.student-completed-review[open]'), (node) => node.dataset.sectionId));
+}
+
+function restoreExpandedReviews(sectionIds) {
+  document.querySelectorAll('.student-completed-review').forEach((node) => {
+    node.open = sectionIds.has(node.dataset.sectionId);
+  });
+}
+
+function renderCompletedQuizResults() {
+  state.sections.filter((section) => section.type === 'quiz' && state.completedSectionIds.has(section.id)).forEach((section) => {
+    (getSectionDetail(section.id)?.attempts || []).forEach((attempt) => {
+      renderQuizResult(quizAttemptResult(attempt), true, `completedQuizResult-${section.id}-${attempt.attemptNo}`, '', t('已提交，以下内容仅供查看，不可修改。'));
+    });
+  });
+}
+
 async function renderCompletionState(student) {
+  const expandedReviews = getExpandedReviews();
   const course = currentCourse();
   const hasScoreCompare = state.sections.some((section) => ['prediction', 'quiz', 'reflection'].includes(section.type));
   state.activeSection = null;
@@ -1329,7 +1365,12 @@ async function renderCompletionState(student) {
         <button type="button" id="historyJumpBtn" class="student-history-jump-btn">${t('查看我的历史课堂答题数据')}</button>
       </div>
     </div>
+    <div class="student-section-stack">
+      ${state.sections.map((section, index) => renderCompletedSection(section, index)).join('')}
+    </div>
   `;
+  restoreExpandedReviews(expandedReviews);
+  renderCompletedQuizResults();
   if (hasScoreCompare) {
     try {
       await renderScoreCompare();
@@ -1466,15 +1507,16 @@ function renderQuestion(question, index = 0) {
   `;
 }
 
-function renderAIChatQuestion(question, index = 0) {
-  const messages = latestQuestionChatMessages(question.id);
+function renderAIChatQuestion(question, index = 0, savedMessages = null) {
+  const readOnly = savedMessages !== null;
+  const messages = savedMessages ?? latestQuestionChatMessages(question.id);
   const rounds = countAIRounds(messages);
   const reachedLimit = rounds >= AI_CHAT_MAX_ROUNDS;
-  const pending = state.aiChatPending.get(aiChatKey(question.id)) === true;
-  setStoredAIChatMessages(question.id, messages);
+  const pending = savedMessages === null && state.aiChatPending.get(aiChatKey(question.id)) === true;
+  if (savedMessages === null) setStoredAIChatMessages(question.id, messages);
   const presets = Array.isArray(question.rules?.presetQuestions) ? question.rules.presetQuestions : [];
   const messagesHiddenClass = messages.length || pending ? '' : ' hidden';
-  const presetHtml = presets.length && !reachedLimit ? `
+  const presetHtml = !readOnly && presets.length && !reachedLimit ? `
     <div class="ai-chat-presets">
       ${presets.map((p, i) => `<button type="button" class="ai-chat-preset-btn" data-question-id="${question.id}" data-preset-index="${i}">${safeHtml(t(p))}</button>`).join('')}
     </div>
@@ -1489,11 +1531,11 @@ function renderAIChatQuestion(question, index = 0) {
         <div class="ai-chat-box">
           <div id="ai-chat-messages-${question.id}" class="ai-chat-messages${messagesHiddenClass}">${renderAIChatMessages(messages, pending)}</div>
           ${presetHtml}
-          <div class="ai-chat-input-row">
+          ${readOnly ? '' : `<div class="ai-chat-input-row">
             <textarea id="ai-chat-input-${question.id}" class="ai-chat-input" placeholder="${t('请输入学习相关的问题，也可以点击上方预设问题')}" maxlength="500" ${reachedLimit ? 'disabled' : ''}></textarea>
             <button type="button" class="ai-chat-send-btn" data-question-id="${question.id}" ${reachedLimit ? 'disabled' : ''}>${t(reachedLimit ? '已达上限' : '发送')}</button>
-          </div>
-          <div id="ai-chat-status-${question.id}" class="ai-chat-status">${reachedLimit ? t(`已达到 ${AI_CHAT_MAX_ROUNDS} 轮上限，可以提交本部分。`) : t(AI_CHAT_GUIDE_TEXT)}</div>
+          </div>`}
+          <div id="ai-chat-status-${question.id}" class="ai-chat-status">${readOnly ? t('已完成，以下对话仅供查看。') : reachedLimit ? t(`已达到 ${AI_CHAT_MAX_ROUNDS} 轮上限，可以提交本部分。`) : t(AI_CHAT_GUIDE_TEXT)}</div>
         </div>
       </div>
     </div>
@@ -1524,6 +1566,7 @@ function syncQuestionCardState(card) {
 
 function setupQuestionCardStates(scope = document) {
   scope.querySelectorAll('.student-question-card').forEach((card) => {
+    if (card.closest('.student-completed-content')) return;
     syncQuestionCardState(card);
     if (card.dataset.stateBound === 'true') return;
     card.dataset.stateBound = 'true';
@@ -1534,6 +1577,7 @@ function setupQuestionCardStates(scope = document) {
 
 function syncChoiceOptionState(scope = document) {
   scope.querySelectorAll('.option, .rating-option').forEach((option) => {
+    if (option.closest('.student-completed-content')) return;
     const input = option.querySelector('input[type="radio"], input[type="checkbox"]');
     const selected = !!input?.checked;
     option.classList.toggle('selected', selected);
@@ -1548,6 +1592,7 @@ function syncChoiceOptionState(scope = document) {
 
 function setupChoiceOptions(scope = document) {
   scope.querySelectorAll('.student-stage-block .option, .option, .rating-option').forEach((option) => {
+    if (option.closest('.student-completed-content')) return;
     if (option.dataset.choiceBound === 'true') return;
     option.dataset.choiceBound = 'true';
     const input = option.querySelector('input[type="radio"], input[type="checkbox"]');
@@ -1579,6 +1624,7 @@ function setupChoiceOptions(scope = document) {
     });
   });
   scope.querySelectorAll('.choice-other-input').forEach((textInput) => {
+    if (textInput.closest('.student-completed-content')) return;
     if (textInput.dataset.otherBound === 'true') return;
     textInput.dataset.otherBound = 'true';
     const option = textInput.closest('.option');
@@ -1623,11 +1669,13 @@ function updateAIChatView(questionId, messages, pending = false, streamingConten
 
 function setupAIChatQuestions() {
   document.querySelectorAll('.ai-chat-send-btn').forEach((button) => {
+    if (button.closest('.student-completed-content')) return;
     if (button.dataset.bound === 'true') return;
     button.dataset.bound = 'true';
     button.addEventListener('click', () => sendAIChatMessage(Number(button.dataset.questionId || 0)));
   });
   document.querySelectorAll('.ai-chat-input').forEach((input) => {
+    if (input.closest('.student-completed-content')) return;
     if (input.dataset.bound === 'true') return;
     input.dataset.bound = 'true';
     input.addEventListener('keydown', (event) => {
@@ -1640,6 +1688,7 @@ function setupAIChatQuestions() {
   });
   // Preset question buttons: fill input on click
   document.querySelectorAll('.ai-chat-preset-btn').forEach((btn) => {
+    if (btn.closest('.student-completed-content')) return;
     if (btn.dataset.presetBound === 'true') return;
     btn.dataset.presetBound = 'true';
     btn.addEventListener('click', () => {
@@ -2030,16 +2079,19 @@ function countOpenTextHighlights(root) {
 
 function setOpenTextEditorsLocked(locked) {
   document.querySelectorAll('.student-open-editor').forEach((editor) => {
+    if (editor.closest('.student-completed-content')) return;
     editor.contentEditable = locked ? 'false' : 'true';
     editor.classList.toggle('is-locked', locked);
   });
   document.querySelectorAll('.student-part2-toolbar button').forEach((button) => {
+    if (button.closest('.student-completed-content')) return;
     button.disabled = locked;
   });
 }
 
 function setupOpenTextEditors() {
   document.querySelectorAll('.student-open-editor').forEach((editor) => {
+    if (editor.closest('.student-completed-content')) return;
     if (editor.dataset.pasteBound === 'true') return;
     editor.dataset.pasteBound = 'true';
     const syncCard = () => syncQuestionCardState(editor.closest('.student-question-card'));
