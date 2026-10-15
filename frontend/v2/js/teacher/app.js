@@ -87,6 +87,54 @@ async function loadAll() {
   await loadStudents();
   await loadClassroom();
   await loadStats();
+  await loadAISettings();
+}
+
+function renderAISettings(settings) {
+  const providers = settings.providers || [];
+  const select = $('primaryAIProvider');
+  select.innerHTML = providers.map((provider) => `<option value="${escapeHtml(provider.id)}" ${provider.id === settings.primaryProvider ? 'selected' : ''} ${provider.configured ? '' : 'disabled'}>${escapeHtml(provider.name)} · ${escapeHtml(provider.model)}${provider.configured ? '' : '（未配置密钥）'}</option>`).join('');
+  select.disabled = !providers.some((provider) => provider.configured);
+  $('saveAISettingsBtn').disabled = select.disabled;
+  $('aiProviderStatus').textContent = providers.map((provider) => `${provider.name}：${provider.configured ? '密钥已配置' : '未配置密钥'}`).join('；') + '。密钥在服务器环境变量中配置。';
+}
+
+async function loadAISettings() {
+  try {
+    renderAISettings(await api('/ai-settings'));
+  } catch (error) {
+    $('aiSettingsMessage').textContent = `读取模型配置失败：${error.message}`;
+  }
+}
+
+async function saveAISettings(event) {
+  event.preventDefault();
+  const button = $('saveAISettingsBtn');
+  if (button.disabled) return;
+  const message = $('aiSettingsMessage');
+  button.disabled = true;
+  button.textContent = '保存中…';
+  button.setAttribute('aria-busy', 'true');
+  message.className = 'meta';
+  message.textContent = '正在保存主模型设置…';
+  try {
+    const settings = await api('/ai-settings', {method: 'PUT', body: JSON.stringify({primaryProvider: $('primaryAIProvider').value})});
+    renderAISettings(settings);
+    const provider = settings.providers.find((item) => item.id === settings.primaryProvider);
+    const text = `保存成功！当前主模型：${provider?.name || settings.primaryProvider}（${provider?.model || ''}）。新发起的 AI 请求立即生效。`;
+    message.className = 'success-message';
+    message.textContent = text;
+    alert(text);
+  } catch (error) {
+    const text = `保存失败：${error.message}。请重试。`;
+    message.className = 'error-message';
+    message.textContent = text;
+    alert(text);
+  } finally {
+    button.textContent = '保存主模型';
+    button.removeAttribute('aria-busy');
+    button.disabled = $('primaryAIProvider').disabled;
+  }
 }
 
 function renderTemplateOptions() {
@@ -2149,6 +2197,7 @@ function bindForms() {
 
   $on('saveClassCourseBindingBtn', 'click', saveClassCourseBinding);
   $on('setDefaultClassBtn', 'click', setDefaultClass);
+  $on('aiSettingsForm', 'submit', saveAISettings);
   $on('classCourseBindingList', 'change', (event) => {
     const input = event.target.closest('input[type="checkbox"]');
     if (!input) return;

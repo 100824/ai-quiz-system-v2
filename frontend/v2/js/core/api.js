@@ -56,6 +56,8 @@ export async function streamApi(path, options = {}, handlers = {}) {
       await handlers.onStart?.(payload);
     } else if (type === 'delta') {
       await handlers.onDelta?.(String(payload?.content || ''), payload);
+    } else if (type === 'reset') {
+      await handlers.onReset?.(payload);
     } else if (type === 'done') {
       doneData = payload;
       await handlers.onDone?.(payload);

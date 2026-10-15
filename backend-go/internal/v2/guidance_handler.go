@@ -151,18 +151,16 @@ func (h *Handler) HandleGenerateStudentAIGuidance(w http.ResponseWriter, r *http
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	answer, err := h.streamDeepSeek(ctx, guidanceSystemPrompt(guidanceContext.Config.Phase), []AIChatMessage{{
+	answer, model, err := h.streamAIToClient(ctx, w, guidanceSystemPrompt(guidanceContext.Config.Phase), []AIChatMessage{{
 		Role:    "user",
 		Content: "请严格依据下面的平台数据完成任务。字段为“未记录”时不得推测或补造。\n\n" + snapshot,
-	}}, func(delta string) error {
-		return writeAIStreamEvent(w, "delta", map[string]string{"content": delta})
-	})
+	}})
 	if err != nil {
 		_ = h.repo.FailAIGuidanceGeneration(session.ID, err)
 		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
 	}
-	session, err = h.repo.CompleteAIGuidanceGeneration(session.ID, answer)
+	session, err = h.repo.CompleteAIGuidanceGeneration(session.ID, answer, model)
 	if err != nil {
 		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
@@ -225,14 +223,12 @@ func (h *Handler) HandleStudentAIGuidanceMessage(w http.ResponseWriter, r *http.
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	answer, err := h.streamDeepSeek(ctx, system, history, func(delta string) error {
-		return writeAIStreamEvent(w, "delta", map[string]string{"content": delta})
-	})
+	answer, model, err := h.streamAIToClient(ctx, w, system, history)
 	if err != nil {
 		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
 	}
-	session, err = h.repo.AppendAIGuidanceExchange(session.ID, body.Message, answer)
+	session, err = h.repo.AppendAIGuidanceExchange(session.ID, body.Message, answer, model)
 	if err != nil {
 		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return

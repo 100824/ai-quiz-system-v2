@@ -1,4 +1,4 @@
-import { api, streamApi } from '../core/api.js?v=2026080202';
+import { api, streamApi } from '../core/api.js?v=2026101501';
 import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { countAnnotatedHighlights, renderAnnotatedAnswer, sanitizeAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
@@ -865,6 +865,10 @@ async function loadOrGenerateAIGuidance(section, forceGenerate = false) {
         onDelta: (delta) => {
           streamingText += delta;
           streamRender(streamingText);
+        },
+        onReset: () => {
+          streamingText = '';
+          streamRender.flush('');
         }
       });
       streamRender.flush(streamingText);
@@ -985,6 +989,10 @@ async function sendAIGuidanceMessage(section) {
       onDelta: (delta) => {
         streamingText += delta;
         streamRender(streamingText);
+      },
+      onReset: () => {
+        streamingText = '';
+        streamRender.flush('');
       }
     });
     streamRender.flush(streamingText);
@@ -1185,7 +1193,9 @@ async function renderClassroom(student) {
       const planAnswersSaved = guidance?.phase === 'plan' && sectionHasAttempt(section.id);
       const questionHtml = planAnswersSaved
         ? `<div class="success-message">${t('第一部分答题内容已保存，请完成下方的AI学习计划。')}</div>`
-        : (questions.length ? questions.map((question, questionIndex) => renderQuestion(question, questionIndex)).join('') : `<div class="empty">${t('当前部分还没有题目。')}</div>`);
+        : (questions.length
+          ? questions.map((question, questionIndex) => renderQuestion(question, questionIndex)).join('')
+          : guidance?.phase === 'evaluation' ? '' : `<div class="empty">${t('当前部分还没有题目。')}</div>`);
       return `
         <section class="student-quiz-block student-stage-block student-stage-block--active" data-section-id="${section.id}">
           <div class="student-quiz-head">
@@ -1887,6 +1897,11 @@ async function sendAIChatMessage(questionId) {
         streamingText += delta;
         if (statusNode) statusNode.textContent = t('AI 正在输出...');
         streamRender(streamingText);
+      },
+      onReset: () => {
+        streamingText = '';
+        streamRender.flush('');
+        if (statusNode) statusNode.textContent = t('正在切换备用模型...');
       }
     });
     streamRender.flush(streamingText);

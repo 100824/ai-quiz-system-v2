@@ -6,9 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,10 +19,12 @@ import (
 const maxAIChatRounds = 10
 
 type Handler struct {
-	repo          *Repository
-	guidanceLocks sync.Map
-	deepSeekURL   string
-	httpClient    *http.Client
+	repo              *Repository
+	guidanceLocks     sync.Map
+	deepSeekURL       string
+	glmURL            string
+	aiProviderTimeout time.Duration
+	httpClient        *http.Client
 }
 
 func NewHandler(repo *Repository) *Handler {
@@ -42,6 +42,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/classes/{id}", h.HandleDeleteClass)
 	mux.HandleFunc("GET /api/v2/default-class", h.HandleGetDefaultClass)
 	mux.HandleFunc("PUT /api/v2/default-class", h.HandleSetDefaultClass)
+	mux.HandleFunc("GET /api/v2/ai-settings", h.HandleGetAISettings)
+	mux.HandleFunc("PUT /api/v2/ai-settings", h.HandleSetAISettings)
 	mux.HandleFunc("GET /api/v2/classes/{id}/students", h.HandleListStudents)
 	mux.HandleFunc("POST /api/v2/classes/{id}/students", h.HandleCreateStudent)
 	mux.HandleFunc("POST /api/v2/classes/{id}/students/batch", h.HandleCreateStudentsBatch)
@@ -605,16 +607,14 @@ func (h *Handler) HandleStudentAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	answer, err := h.streamDeepSeek(ctx, strings.Join([]string{
+	answer, model, err := h.streamAIToClient(ctx, w, strings.Join([]string{
 		"你是小学五年级人工智能课堂里的学习助手。",
 		"只回答学习相关问题，包括人工智能、课堂知识、学习方法、作业思路和学科知识。",
 		"如果学生询问与学习无关、娱乐八卦、违法危险、隐私攻击等内容，请礼貌拒绝，并引导回学习问题。",
 		"每次回复必须控制在1000个中文字符以内。",
 		"解释要符合小学五年级学生理解水平：用短句、例子和鼓励性的语气，不要堆砌术语。",
 		"不要直接代写完整作业答案，可以给思路、步骤、提示和检查方法。",
-	}, "\n"), history, func(delta string) error {
-		return writeAIStreamEvent(w, "delta", map[string]string{"content": delta})
-	})
+	}, "\n"), history)
 	if err != nil {
 		_ = writeAIStreamEvent(w, "error", map[string]string{"error": err.Error()})
 		return
@@ -625,42 +625,39 @@ func (h *Handler) HandleStudentAIChat(w http.ResponseWriter, r *http.Request) {
 		"messages":         history,
 		"rounds":           rounds + 1,
 		"maxRounds":        maxAIChatRounds,
+		"model":            model,
 	})
 }
 
-func (h *Handler) streamDeepSeek(ctx context.Context, systemPrompt string, history []AIChatMessage, onDelta func(string) error) (string, error) {
-	apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_KEY"))
-	if apiKey == "" {
-		apiKey = strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
-	}
-	if apiKey == "" {
-		return "", fmt.Errorf("未配置 DEEPSEEK_KEY 环境变量")
-	}
+func (h *Handler) streamProvider(ctx context.Context, provider aiProvider, systemPrompt string, history []AIChatMessage, onDelta func(string) error) (string, error) {
 	messages := []AIChatMessage{{Role: "system", Content: systemPrompt}}
 	messages = append(messages, history...)
 
 	payload := map[string]interface{}{
-		"model":       "deepseek-v4-flash",
+		"model":       provider.Model,
 		"messages":    messages,
 		"stream":      true,
 		"thinking":    map[string]string{"type": "disabled"},
 		"temperature": 0.3,
 		"max_tokens":  1200,
 	}
+	// GLM-5.3-Flash requires thinking to remain enabled.
+	if provider.ID == "glm" {
+		payload["thinking"] = map[string]string{"type": "enabled"}
+		payload["reasoning_effort"] = "low"
+		payload["temperature"] = 1.0
+		payload["max_tokens"] = 4096
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
-	deepSeekURL := h.deepSeekURL
-	if deepSeekURL == "" {
-		deepSeekURL = "https://api.deepseek.com/chat/completions"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, deepSeekURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, provider.url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+provider.key)
 
 	client := h.httpClient
 	if client == nil {
@@ -668,22 +665,14 @@ func (h *Handler) streamDeepSeek(ctx context.Context, systemPrompt string, histo
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("调用 DeepSeek 失败：%w", err)
+		return "", fmt.Errorf("调用 %s 失败：%w", provider.ID, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		var errBody struct {
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if json.Unmarshal(respBody, &errBody) == nil && strings.TrimSpace(errBody.Error.Message) != "" {
-			return "", fmt.Errorf("DeepSeek 返回错误：%s", errBody.Error.Message)
-		}
-		return "", fmt.Errorf("DeepSeek 返回错误状态：%s", resp.Status)
+		return "", fmt.Errorf("%s 返回错误状态：%d", provider.ID, resp.StatusCode)
 	}
 	var answer strings.Builder
+	finished := false
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	for scanner.Scan() {
@@ -696,20 +685,32 @@ func (h *Handler) streamDeepSeek(ctx context.Context, systemPrompt string, histo
 			continue
 		}
 		if data == "[DONE]" {
+			finished = true
 			break
 		}
 		var chunk struct {
+			Error   json.RawMessage `json:"error"`
 			Choices []struct {
-				Delta struct {
+				FinishReason string `json:"finish_reason"`
+				Delta        struct {
 					Content          string `json:"content"`
 					ReasoningContent string `json:"reasoning_content"`
 				} `json:"delta"`
 			} `json:"choices"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			return "", fmt.Errorf("解析 DeepSeek 流式响应失败：%w", err)
+			return "", fmt.Errorf("解析 %s 流式响应失败：%w", provider.ID, err)
+		}
+		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
+			return "", fmt.Errorf("%s 流式服务返回错误", provider.ID)
 		}
 		for _, choice := range chunk.Choices {
+			if choice.FinishReason != "" {
+				if choice.FinishReason != "stop" {
+					return "", fmt.Errorf("%s 回答未正常完成", provider.ID)
+				}
+				finished = true
+			}
 			// Reasoning content is intentionally ignored; only the final answer is shown.
 			delta := choice.Delta.Content
 			if delta == "" {
@@ -724,11 +725,14 @@ func (h *Handler) streamDeepSeek(ctx context.Context, systemPrompt string, histo
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("读取 DeepSeek 流式响应失败：%w", err)
+		return "", fmt.Errorf("读取 %s 流式响应失败：%w", provider.ID, err)
+	}
+	if !finished {
+		return "", fmt.Errorf("%s 流式响应意外中断", provider.ID)
 	}
 	answerText := strings.TrimSpace(answer.String())
 	if answerText == "" {
-		return "", fmt.Errorf("DeepSeek 返回空回答")
+		return "", fmt.Errorf("%s 返回空回答", provider.ID)
 	}
 	return answerText, nil
 }

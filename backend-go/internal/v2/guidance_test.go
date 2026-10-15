@@ -193,8 +193,19 @@ func TestReflectionAIGuidanceDefaultsAndCompletion(t *testing.T) {
 	if reused {
 		t.Fatal("first evaluation generation should not reuse a session")
 	}
-	if _, err := repo.CompleteAIGuidanceGeneration(evaluationSession.ID, "第一次小测评价"); err != nil {
+	generated, err := repo.CompleteAIGuidanceGeneration(evaluationSession.ID, "第一次小测评价", "glm-5.3-flash")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if generated.Model != "glm-5.3-flash" {
+		t.Fatalf("wrong generation model: %s", generated.Model)
+	}
+	followUp, err := repo.AppendAIGuidanceExchange(evaluationSession.ID, "如何改进？", "先复习错题", "deepseek-v4-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if followUp.Model != "deepseek-v4-flash" {
+		t.Fatalf("wrong follow-up model: %s", followUp.Model)
 	}
 	retakeAnswers := map[string]json.RawMessage{}
 	for _, question := range quizQuestions {

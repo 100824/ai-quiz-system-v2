@@ -307,7 +307,11 @@ func (r *Repository) FailAIGuidanceGeneration(sessionID int, generationErr error
 	return err
 }
 
-func (r *Repository) CompleteAIGuidanceGeneration(sessionID int, content string) (*AIGuidanceSession, error) {
+func (r *Repository) CompleteAIGuidanceGeneration(sessionID int, content string, models ...string) (*AIGuidanceSession, error) {
+	model := ""
+	if len(models) > 0 {
+		model = models[0]
+	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, err
@@ -324,10 +328,10 @@ func (r *Repository) CompleteAIGuidanceGeneration(sessionID int, content string)
 	}
 	if _, err := tx.Exec(`
 		UPDATE ai_guidance_sessions
-		SET status = 'ready', error_message = '', generated_at = CURRENT_TIMESTAMP,
+		SET status = 'ready', error_message = '', generated_at = CURRENT_TIMESTAMP, model = COALESCE(NULLIF(?, ''), model),
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, sessionID); err != nil {
+	`, model, sessionID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -340,7 +344,11 @@ func (r *Repository) CompleteAIGuidanceGeneration(sessionID int, content string)
 	return r.loadAIGuidanceSessionBySubmission(submissionID, sectionID)
 }
 
-func (r *Repository) AppendAIGuidanceExchange(sessionID int, userMessage, assistantMessage string) (*AIGuidanceSession, error) {
+func (r *Repository) AppendAIGuidanceExchange(sessionID int, userMessage, assistantMessage string, models ...string) (*AIGuidanceSession, error) {
+	model := ""
+	if len(models) > 0 {
+		model = models[0]
+	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, err
@@ -358,7 +366,7 @@ func (r *Repository) AppendAIGuidanceExchange(sessionID int, userMessage, assist
 	`, sessionID, nextOrder, userMessage, sessionID, nextOrder+1, assistantMessage); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(`UPDATE ai_guidance_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, sessionID); err != nil {
+	if _, err := tx.Exec(`UPDATE ai_guidance_sessions SET model = COALESCE(NULLIF(?, ''), model), updated_at = CURRENT_TIMESTAMP WHERE id = ?`, model, sessionID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

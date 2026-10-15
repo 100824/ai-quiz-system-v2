@@ -245,6 +245,31 @@ npm run pm2:start
 
 构建产物 `backend-go/server` 是一个独立的可执行文件，不依赖本地 Go 环境即可运行。
 
+## AI 主模型与备用厂商（新版课堂）
+
+新版学生端的 AI 对话、AI 学习计划、AI 学习评价及追问，统一支持 DeepSeek / GLM 双厂商。默认主厂商为 DeepSeek，备用为 `glm-5.3-flash`。教师端「课堂管理 → AI 模型设置」可选择主厂商，设置对所有课堂生效、持久保存，新请求立即生效。仅密钥已配置的厂商可设为主模型；页面只展示配置状态，不返回密钥。
+
+密钥沿用后端环境变量配置方式，不在网页或仓库中保存：
+
+```bash
+# 在运行 Go 后端的服务器上配置真实值
+export DEEPSEEK_KEY='你的 DeepSeek API Key'
+export GLM_KEY='你的智谱 API Key'
+# 可选：DeepSeek 型号；GLM 固定使用 glm-5.3-flash
+export DEEPSEEK_MODEL='deepseek-v4-flash'
+
+npm run backend:build
+pm2 restart ai-quiz-system --update-env
+```
+
+也兼容 `DEEPSEEK_API_KEY` / `GLM_API_KEY`，其中 `*_KEY` 优先。环境变量必须传入后端进程；只重启前端不会加载密钥。生产环境应通过已有的密钥注入/进程管理方式保存这些变量，确保服务器重启后仍可读取；不要将实际 Key 写进提交的配置文件。
+
+GLM 使用智谱通用 API 端点 `https://open.bigmodel.cn/api/paas/v4/chat/completions`，需要该端点可用的 API Key，配置参考[官方快速开始](https://docs.bigmodel.cn/cn/guide/start/quick-start)。GLM 固定使用 `glm-5.3-flash`，不读取 `GLM_MODEL`，也不尝试其他 GLM 型号。按该型号要求启用思考，使用 `reasoning_effort=low`。
+
+每次请求先尝试教师选择的主厂商；HTTP 错误、网络错误、空回答、流解析错误、中断或单厂商调用超过 20 秒时，尝试另一家已配置的厂商，每家最多一次。两次尝试共用原有 45 秒总时限。切换不会改变教师保存的主厂商，下次请求仍从主厂商开始。两家都不可用时返回明确提示；浏览器断开时不再调用备用厂商。
+
+流中途切换会发送 `reset` 事件，学生端清除当前未完成的输出，然后继续显示备用回答；只有完整成功的回答才写入学习指导记录，并保存实际使用的模型名。上线时需同时更新后端、教师端及学生端静态文件。
+
 ## 12. 交接给 Claude Code 的建议提示词
 
 可以直接给 Claude Code 一段这样的任务说明：
