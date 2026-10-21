@@ -1135,6 +1135,12 @@ async function renderClassroom(student) {
   if (allCompleted) {
     state.activeSection = null;
     await renderCompletionState(student);
+    const reflectionSection = state.sections[3];
+    if (reflectionSection?.type === 'reflection' && reflectionSection.id === previousActiveSectionId) {
+      window.requestAnimationFrame(() => {
+        $('historyJumpBtn')?.closest('.student-complete-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
     return;
   }
   const stageIndex = sectionIndexById(stageID);
@@ -1340,6 +1346,14 @@ function getExpandedReviews() {
 }
 
 function restoreExpandedReviews(sectionIds) {
+  // Only expand newly submitted results for the reflection template's quiz.
+  // Subsequent renders preserve the student's own expand/collapse choice.
+  const quizSection = state.sections[2];
+  if (currentCourse()?.mode === 'reflection'
+    && quizSection?.type === 'quiz'
+    && Number(state.pendingQuizResultScrollSectionId) === Number(quizSection.id)) {
+    sectionIds.add(String(quizSection.id));
+  }
   document.querySelectorAll('.student-completed-review').forEach((node) => {
     node.open = sectionIds.has(node.dataset.sectionId);
   });
@@ -1470,7 +1484,7 @@ function renderQuestionHeader(question, index, typeLabel = questionTypeLabel(que
     <div class="student-question-card__head">
       <span class="student-question-number">${safeHtml(t(`第 ${index + 1} 题`))}</span>
       <span class="student-question-kind">${safeHtml(t(typeLabel))}</span>
-      <span class="student-question-state" aria-label="${t('已作答')}">✓</span>
+      ${['single_choice', 'multiple_choice'].includes(question.type) ? '' : `<span class="student-question-state" aria-label="${t('已作答')}">✓</span>`}
     </div>
   `;
 }
