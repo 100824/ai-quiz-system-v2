@@ -270,6 +270,16 @@ GLM 使用智谱通用 API 端点 `https://open.bigmodel.cn/api/paas/v4/chat/com
 
 流中途切换会发送 `reset` 事件，学生端清除当前未完成的输出，然后继续显示备用回答；只有完整成功的回答才写入学习指导记录，并保存实际使用的模型名。上线时需同时更新后端、教师端及学生端静态文件。
 
+## 学生方案设计
+
+- 学生入口：`/design.html`；教师端「方案设计」页签可创建方案、配置有序开放题、绑定班级、查看两版答案及导出 Excel。
+- 学生提交第一版后，只读展示并支持复制完整方案，到外部 AI 优化。等待 120 秒后开放第二版编辑，时间从第一版提交时计算，刷新或重新登录不会重置。等待限制仅在前端实现。
+- 每道题必填；第二版至少一道答案须有变化（忽略空白）。两版独立保存，第二版提交后只能查看与复制。已有提交后锁定题目，解绑班级不删除历史记录。
+- 后端启动时自动创建独立的 `design_*` 表，不改动课堂答题表；部署需构建、重启 Go 后端并更新前端文件。
+- 新增接口组：`/api/v2/design-plans`（配置、记录、导出、学生状态、版本提交），班级绑定列表：`/api/v2/classes/{id}/design-plans?studentId=...`。学生身份沿用现有班级名单匹配方式。
+- 浏览器验收：在项目根目录执行 `node --test frontend/tests/design.test.mjs`（需已安装 Playwright Chromium）。使用模拟接口，不修改课堂数据库或调用 AI；Go 测试使用内存数据库验证保存、锁定及真实 Excel 导出。
+- 真实后端全流程验收：`node --test frontend/tests/design-real.test.mjs`。自动启动使用内存 SQLite 的 Go HTTP 服务，走教师真实登录和学生两版提交流程，检查真实 Excel 单元格及慢请求交互；不访问业务数据库。验收记录写入 `/private/tmp/design-acceptance-results.json`。
+
 ## 12. 交接给 Claude Code 的建议提示词
 
 可以直接给 Claude Code 一段这样的任务说明：

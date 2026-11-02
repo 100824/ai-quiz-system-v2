@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>学生方案设计 - 人工智能学习平台</title>
+  <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
+  <link rel="stylesheet" href="./v2/css/app.css?v=2026100903">
+  <link rel="stylesheet" href="./v2/css/design.css?v=2026110205">
+</head>
+<body class="student-page design-page">
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand"><h1>学生方案设计</h1></div>
+      <nav class="nav-pills"><a href="./student.html">课堂答题</a><a href="./teacher.html">教师端</a></nav>
+      <div id="designIdentity" class="student-header-actions hidden"></div>
+    </header>
+    <section id="designLogin" class="design-login-layout">
+      <div class="panel design-login-card">
+        <h2>欢迎你！</h2><p class="meta">选择班级，输入姓名，进入方案设计。</p>
+        <form id="designLoginForm" class="form-row">
+          <label for="designClass">请选择你的班级</label><select id="designClass"></select>
+          <label for="designName">请输入你的姓名</label>
+          <input id="designName" list="designNames" placeholder="请输入姓名" autocomplete="off" required>
+          <datalist id="designNames"></datalist>
+          <div class="student-login-actions"><button id="designEnter">开始设计</button></div>
+          <p id="designLoginMessage" role="status"></p>
+        </form>
+      </div>
+    </section>
+    <section id="designWorkspace" class="hidden">
+      <div class="panel design-plan-picker"><label for="designPlanSelect">选择方案</label><select id="designPlanSelect"></select><p id="designNotice" role="status"></p></div>
+      <div id="designContent"></div>
+    </section>
+  </main>
+  <script type="module" src="./v2/js/design/student.js?v=2026110205"></script>
+</body>
+</html>

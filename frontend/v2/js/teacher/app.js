@@ -3,6 +3,7 @@ import { enhanceCustomSelects } from '../core/custom-select.js?v=2026062034';
 import { renderAnnotatedAnswer } from '../core/annotated-answer.js';
 import { renderMarkdown } from '../core/markdown.js';
 import { renderRichText } from '../core/rich-text.js?v=2026071101';
+import { loadDesignTeacher } from '../design/teacher.js?v=2026110203';
 
 const legacyApiBase = () => `${window.location.protocol}//${window.location.hostname}:8080/api`;
 
@@ -2416,6 +2417,7 @@ function bindClicks() {
       button.classList.add('active');
       document.getElementById(button.dataset.tab).classList.add('active');
       if (button.dataset.tab === 'stats') await loadStats();
+      if (button.dataset.tab === 'design') await loadDesignTeacher();
     });
   });
 }

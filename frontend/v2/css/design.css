@@ -1,0 +1,90 @@
+.design-page #designWorkspace { max-width: 1100px; margin: 0 auto; }
+.design-page #designWorkspace > .panel { margin-bottom: 24px; }
+.design-page .design-question { margin-bottom: 24px; }
+.design-page .design-question h3, #design .design-record h4 { white-space: pre-wrap; overflow-wrap: anywhere; }
+.design-page .design-answer { width: 100%; min-height: 160px; resize: vertical; margin-top: 16px; }
+.design-page .design-readonly, #design .design-readonly { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; padding: 18px; border: 1px solid #d4e4f4; border-radius: 16px; background: #f8fbff; }
+.design-page .design-actions { display: flex; flex-wrap: wrap; gap: 16px; margin: 24px 0; align-items: center; }
+.design-page .design-wait { margin: 24px 0; padding: 20px; background: #effaf3; border: 1px solid #a7dabb; border-radius: 18px; }
+.design-page .design-wait p { margin: 8px 0; }
+.design-page #designIdentity { gap: 12px; flex-wrap: wrap; }
+#design .design-question-edit { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid #d9e6f4; border-radius: 16px; background: #f8fbff; align-items: center; }
+#design .design-question-edit > span { font-weight: 700; color: #3a5a8a; }
+#design .design-question-edit textarea { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; min-height: 100px; padding: 14px; font-size: 16px; }
+#design .design-question-tools { grid-column: 2; grid-row: 1; display: flex; gap: 8px; }
+#design .design-question-tools button { min-height: 34px; padding: 6px 12px; border: 1px solid #cadcf0; border-radius: 10px; box-shadow: none; font-size: 13px; }
+#design .design-question-tools button:disabled { opacity: 1; background: #edf1f6; color: #a1afbe; border-color: #e1e7ee; cursor: not-allowed; }
+#design .design-library { margin-bottom: 24px; }
+#design .design-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+#design .design-panel-heading h2 { text-align: left; margin: 0 0 8px; font-size: 24px; }
+#design .design-panel-heading p { margin: 0; }
+#design .design-panel-heading > button { flex-shrink: 0; padding: 12px 18px; font-size: 15px; }
+#design .design-count { display: inline-block; padding: 3px 10px; background: #eaf2ff; border-radius: 20px; font-size: 15px; vertical-align: middle; }
+#design .design-plan-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); gap: 16px; }
+#design .design-plan-card { padding: 18px; border: 1px solid #d9e6f4; border-radius: 16px; background: #fbfdff; min-width: 0; }
+#design .design-plan-card.is-selected { border-color: #5996f4; background: #f0f6ff; }
+#design .design-plan-card h3 { text-align: left; margin: 0 0 12px; font-size: 18px; overflow-wrap: anywhere; }
+#design .design-plan-card p { margin: 6px 0; overflow-wrap: anywhere; }
+#design .design-card-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+#design .design-card-actions button { padding: 8px 12px; font-size: 14px; border-width: 1px; border-radius: 10px; box-shadow: none; }
+#design .design-switch-label { display: block; margin-bottom: 8px; color: #7089a2; font-size: 14px; }
+#design #dpSelect { margin-bottom: 24px; }
+#design .design-config-card .form-row > div { margin-bottom: 16px; }
+#design .design-config-card .form-row > p { margin: 8px 0 16px; }
+#design #dpAdd { justify-self: start; width: auto; padding: 10px 18px; font-size: 14px; }
+#design .design-bindings label { padding: 8px 12px; background: #f3f7fc; border-radius: 10px; font-size: 15px; }
+#design #dpEditor, #design #dpRecordsPanel { scroll-margin-top: 24px; }
+#design .design-bindings { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; }
+#design .design-bindings label { display: inline-flex; align-items: center; gap: 8px; }
+#design .design-bindings input { width: auto; }
+#design .design-record { margin-top: 18px; padding: 18px; border: 1px solid #d4e4f4; border-radius: 16px; }
+#design .design-record summary { cursor: pointer; }
+#design .design-compare { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 16px 0; }
+@media(max-width:700px) { #design .design-compare { grid-template-columns: 1fr; } #design .design-panel-heading { align-items: flex-start; flex-wrap: wrap; } #design .design-question-edit { grid-template-columns: 1fr; } #design .design-question-tools { grid-column: 1; grid-row: 2; flex-wrap: wrap; } #design .design-question-edit textarea { grid-row: 3; } }
+
+/* Match the existing student classroom theme; only layout is specific to design. */
+.design-page .topbar { display: flex; flex-direction: column; align-items: center; }
+.design-page #designIdentity { position: static; margin-top: 16px; justify-content: center; color: #fff; }
+.design-page .design-login-layout { max-width: 560px; margin: 0 auto; }
+.design-page .design-login-card .student-login-actions { margin-top: 8px; }
+.design-page .design-login-card > .meta { margin-bottom: 20px; }
+.design-page .design-actions:empty { display: none; }
+.design-page .design-plan-picker { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 16px; align-items: center; }
+.design-page .design-plan-picker label { font-size: 18px; font-weight: 700; color: #3a5a8a; }
+.design-page #designNotice { grid-column: 1 / -1; margin: 0; }
+.design-page #designLoginMessage:empty, .design-page #designNotice:empty, .design-page #designSubmitMessage:empty { display: none; }
+.design-page .design-stepper { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; list-style: none; margin: 24px 0; padding: 0; }
+.design-page .design-stepper li { display: flex; gap: 10px; align-items: center; border: 1px solid #d7e5f5; border-radius: 16px; padding: 14px 16px; background: #f4f8fe; color: #7f96af; font-size: 14px; font-weight: 600; }
+.design-page .design-step-number { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e1ebf8; }
+.design-page .design-stepper .is-current { background: #e6f0ff; border-color: #8cbaff; color: #3a72bb; }
+.design-page .design-stepper .is-current .design-step-number { background: #3b82f6; color: #fff; }
+.design-page .design-stepper .is-done { color: #557fa7; background: #edf5ff; }
+.design-page .design-document-heading { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.design-page .design-document-heading h2 { text-align: left; margin: 0; overflow-wrap: anywhere; }
+.design-page .design-state-badge { flex-shrink: 0; padding: 5px 12px; border: 1px solid #cfe2ff; border-radius: 999px; background: #ecf4ff; color: #4a78ad; font-size: 13px; font-weight: 600; }
+.design-page .design-document-intro { color: #5a85a8; margin-bottom: 20px; font-size: 15px; }
+.design-page .design-version-picker { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 20px 0 24px; }
+.design-page .design-version-picker label { color: #3a5a8a; font-weight: 600; }
+.design-page .design-version-picker select { width: 190px; }
+.design-page .design-version-picker > span { color: #6e8ba7; font-size: 13px; }
+.design-page .design-question { padding: 22px; border: 1px solid #d8e6f6; border-radius: 18px; background: #f7fbff; box-shadow: none; }
+.design-page .design-question-heading { display: flex; align-items: baseline; gap: 12px; }
+.design-page .design-question-heading h3 { flex: 1; color: #3a5a8a; text-align: left; font-size: 19px; line-height: 1.7; margin: 0; }
+.design-page .design-question-number { color: #6895c1; font-weight: 700; font-size: 14px; }
+.design-page .design-required { color: #7c94ab; font-size: 12px; flex-shrink: 0; }
+.design-page .design-answer { line-height: 1.9; }
+.design-page .design-readonly { margin-top: 16px; background: #fff; }
+.design-page .design-wait { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+.design-page .design-wait h3 { text-align: left; color: #3a6e60; font-size: 20px; margin: 0 0 8px; }
+.design-page .design-wait p { font-size: 14px; color: #5c877b; }
+.design-page #designCountdown { font-weight: 600; }
+.design-page .design-actions p { color: #7b92a7; font-size: 13px; }
+@media(max-width:700px) {
+  .design-page .design-plan-picker { grid-template-columns: 1fr; }
+  .design-page .design-stepper { gap: 8px; }
+  .design-page .design-stepper li { flex-direction: column; align-items: flex-start; padding: 12px 10px; gap: 8px; font-size: 12px; }
+  .design-page .design-document-heading { align-items: flex-start; flex-wrap: wrap; }
+  .design-page .design-question { padding: 16px; }
+  .design-page .design-question-heading h3 { font-size: 17px; }
+  .design-page .design-document { padding: 24px 20px; }
+}

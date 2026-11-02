@@ -6,6 +6,7 @@
   <title>人工智能学习平台 - 教师管理后台</title>
   <link rel="stylesheet" href="./v2/css/tokens.css?v=2026061910">
   <link rel="stylesheet" href="./v2/css/app.css?v=2026073101">
+  <link rel="stylesheet" href="./v2/css/design.css?v=2026110203">
   <style>
     .show-for-checkbox { appearance:none;-webkit-appearance:none;width:12px;height:12px;border:1.5px solid #5B9BD5;border-radius:2px;background:#fff;cursor:pointer;transition:none;transform:none!important;outline:none;flex-shrink:0;margin:0;padding:0;vertical-align:middle; }
     .show-for-checkbox:checked { background:#5B9BD5;border-color:#5B9BD5; }
@@ -36,6 +37,7 @@
       </div>
       <nav class="nav-pills">
         <a href="./student.html">学生端</a>
+        <a href="./design.html">学生方案设计</a>
         <a href="./student-history.html">新版历史页</a>
         <a href="./history/teacher.html">旧版归档</a>
       </nav>
@@ -46,7 +48,12 @@
       <button data-tab="class">班级管理</button>
       <button data-tab="question">题目管理</button>
       <button data-tab="stats">统计数据</button>
+      <button data-tab="design">方案设计</button>
     </nav>
+
+    <section id="design" class="tab-content">
+      <div class="panel"><h2>方案设计管理</h2><p class="meta">正在等待加载…</p></div>
+    </section>
 
     <section id="course" class="tab-content active">
       <div class="grid">
@@ -382,6 +389,6 @@
     </div>
   </div>
 
-  <script type="module" src="./v2/js/teacher/app.js?v=2026101502"></script>
+  <script type="module" src="./v2/js/teacher/app.js?v=2026110203"></script>
 </body>
 </html>

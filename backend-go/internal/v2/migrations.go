@@ -211,6 +211,9 @@ func InitDB(db *sql.DB) error {
 			return err
 		}
 	}
+	if err := initDesignPlans(db); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "score_records", "teacher_score", "INTEGER"); err != nil {
 		return err
 	}

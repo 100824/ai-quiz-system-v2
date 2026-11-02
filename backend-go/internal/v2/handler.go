@@ -36,6 +36,7 @@ func NewHandler(repo *Repository) *Handler {
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
+	h.registerDesignPlans(mux)
 	mux.HandleFunc("GET /api/v2/meta", h.HandleMeta)
 	mux.HandleFunc("GET /api/v2/classes", h.HandleListClasses)
 	mux.HandleFunc("POST /api/v2/classes", h.HandleCreateClass)
