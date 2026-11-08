@@ -180,6 +180,70 @@ test('student: teacher selects active plan; no student selector; updates arrive 
   } finally { await page.close(); }
 });
 
+test('student: second version empty input shows feedback and failed submission can be retried', async () => {
+  const page=await browser.newPage();
+  try {
+    const f=await fixture(page);
+    f.versions.push({version:1,title:f.plan.title,questions:[...f.plan.questions],answers:['初版目标','初版做法'],submittedAt:new Date().toISOString()});
+    f.setStage(2);
+    await page.goto(`${origin}/design.html`);await login(page);
+    await page.locator('[data-answer]').first().fill('');await page.locator('#designSubmit').click();
+    assert.match(await page.locator('#designSubmitMessage').innerText(),/第1题不能为空/);
+    assert.equal(f.versions.length,1);
+    await page.locator('[data-answer]').first().fill('完善后的第二版目标');f.failNext();await page.locator('#designSubmit').click();
+    await page.waitForFunction(()=>document.querySelector('#designSubmitMessage')?.textContent.includes('模拟网络失败'));
+    assert.equal(await page.locator('#designSubmit').isEnabled(),true);
+    assert.equal(await page.locator('[data-answer]').first().inputValue(),'完善后的第二版目标');
+    await page.locator('#designSubmit').click();await page.locator('#copyFinal').waitFor();
+    assert.equal(f.versions.length,2);assert.equal(f.versions[1].answers[0],'完善后的第二版目标');
+  } finally {await page.close();}
+});
+
+test('student: second-version network failure retries safely and recovers a committed response', async () => {
+  for(const committed of [false,true]) {
+    const page=await browser.newPage();
+    try {
+      const f=await fixture(page);
+      f.versions.push({version:1,title:f.plan.title,questions:[...f.plan.questions],answers:['初版目标','初版做法'],submittedAt:new Date().toISOString()});f.setStage(2);
+      let posts=0;
+      await page.route('**/api/v2/design-plans/1/versions',async(route)=>{
+        posts++;
+        if(posts===1) {
+          if(committed){const body=route.request().postDataJSON();f.versions.push({version:2,title:f.plan.title,questions:[...f.plan.questions],answers:body.answers,submittedAt:new Date().toISOString()});}
+          await route.abort('connectionreset');
+        }else await route.fallback();
+      });
+      await page.goto(`${origin}/design.html`);await login(page);await page.locator('[data-answer]').first().fill('网络恢复后的第二版');await page.locator('#designSubmit').click();await page.locator('#copyFinal').waitFor();
+      assert.equal(f.versions.length,2);assert.equal(f.versions[1].answers[0],'网络恢复后的第二版');assert.equal(posts,committed?1:2);
+    }finally{await page.close();}
+  }
+});
+
+test('student: persistent second-version network failure keeps input and unlocks retry', async () => {
+  const page=await browser.newPage();
+  try {
+    const f=await fixture(page);f.versions.push({version:1,title:f.plan.title,questions:[...f.plan.questions],answers:['初版目标','初版做法'],submittedAt:new Date().toISOString()});f.setStage(2);
+    let posts=0;await page.route('**/api/v2/design-plans/1/versions',async(route)=>{posts++;await route.abort('connectionreset');});
+    await page.goto(`${origin}/design.html`);await login(page);await page.locator('[data-answer]').first().fill('保留这份第二版');await page.locator('#designSubmit').click();
+    await page.waitForFunction(()=>document.querySelector('#designSubmitMessage')?.textContent.includes('输入已保留'));
+    assert.equal(posts,2);assert.equal(f.versions.length,1);assert.equal(await page.locator('[data-answer]').first().inputValue(),'保留这份第二版');assert.equal(await page.locator('#designSubmit').isEnabled(),true);
+  }finally{await page.close();}
+});
+
+test('student: unavailable readback never blindly resubmits a second version', async () => {
+  const page=await browser.newPage();
+  try {
+    const f=await fixture(page);f.versions.push({version:1,title:f.plan.title,questions:[...f.plan.questions],answers:['初版目标','初版做法'],submittedAt:new Date().toISOString()});f.setStage(2);
+    let posts=0;
+    await page.route('**/api/v2/design-plans/1/versions',async route=>{posts++;await route.abort('connectionreset');});
+    await page.goto(`${origin}/design.html`);await login(page);
+    await page.route('**/api/v2/design-plans/1/student?*',route=>route.abort('connectionreset'));
+    await page.locator('[data-answer]').first().fill('断网时保留的内容');await page.locator('#designSubmit').click();
+    await page.waitForFunction(()=>document.querySelector('#designSubmitMessage')?.textContent.includes('输入已保留'));
+    assert.equal(posts,1);assert.equal(f.versions.length,1);assert.equal(await page.locator('[data-answer]').first().inputValue(),'断网时保留的内容');assert.equal(await page.locator('#designSubmit').isEnabled(),true);
+  }finally{await page.close();}
+});
+
 test('student: successful save followed by failed reload offers read retry, not duplicate submit', async () => {
   const page = await browser.newPage();
   try {

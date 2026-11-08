@@ -1,6 +1,6 @@
 export const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
 export const versionStatus = (count) => ['未提交', '仅第一版', '两版完成'][count] || '未提交';
-export const comparable = (value) => String(value).replace(/\s/gu, '');
+export const comparable = (value) => String(value).replace(/[\p{White_Space}\p{Cf}\ufe00-\ufe0f\u{e0100}-\u{e01ef}]/gu, '');
 export const localTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '未提交';
 
 export function planText(version) {

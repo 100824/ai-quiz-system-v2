@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 func initDesignPlans(db *sql.DB) error {
@@ -24,15 +25,23 @@ func initDesignPlans(db *sql.DB) error {
 			return err
 		}
 	}
-	return initDesignImages(db)
+	if err := ensureColumn(db, "design_plans", "output_type", "TEXT NOT NULL DEFAULT 'image' CHECK(output_type IN ('image','html'))"); err != nil {
+		return err
+	}
+	if err := initDesignImages(db); err != nil {
+		return err
+	}
+	return initDesignHTML(db)
 }
 
 type DesignPlan struct {
-	ID        int      `json:"id"`
-	Title     string   `json:"title"`
-	Questions []string `json:"questions"`
-	ClassIDs  []int    `json:"classIds"`
-	Locked    bool     `json:"locked"`
+	OutputType       string   `json:"outputType"`
+	OutputTypeLocked bool     `json:"outputTypeLocked"`
+	ID               int      `json:"id"`
+	Title            string   `json:"title"`
+	Questions        []string `json:"questions"`
+	ClassIDs         []int    `json:"classIds"`
+	Locked           bool     `json:"locked"`
 }
 
 type DesignVersion struct {
@@ -44,15 +53,18 @@ type DesignVersion struct {
 }
 
 type DesignStudentRecord struct {
-	StudentID    int             `json:"studentId"`
-	ClassID      int             `json:"classId"`
-	Name         string          `json:"name"`
-	ClassName    string          `json:"className"`
-	Versions     []DesignVersion `json:"versions"`
-	Stage        int             `json:"stage"`
-	ImageCount   int             `json:"imageCount"`
-	FinalImageID string          `json:"finalImageId"`
-	FinalizedAt  string          `json:"finalizedAt"`
+	HTMLVersionCount   int             `json:"htmlVersionCount"`
+	FinalHTMLVersionID string          `json:"finalHtmlVersionId"`
+	HTMLFinalizedAt    string          `json:"htmlFinalizedAt"`
+	StudentID          int             `json:"studentId"`
+	ClassID            int             `json:"classId"`
+	Name               string          `json:"name"`
+	ClassName          string          `json:"className"`
+	Versions           []DesignVersion `json:"versions"`
+	Stage              int             `json:"stage"`
+	ImageCount         int             `json:"imageCount"`
+	FinalImageID       string          `json:"finalImageId"`
+	FinalizedAt        string          `json:"finalizedAt"`
 }
 
 type designQuery interface {
@@ -62,7 +74,7 @@ type designQuery interface {
 
 func loadDesignPlan(q designQuery, id int) (*DesignPlan, error) {
 	p := &DesignPlan{ID: id, Questions: []string{}, ClassIDs: []int{}}
-	if err := q.QueryRow(`SELECT title, EXISTS(SELECT 1 FROM design_versions WHERE plan_id=?) FROM design_plans WHERE id=?`, id, id).Scan(&p.Title, &p.Locked); err != nil {
+	if err := q.QueryRow(`SELECT title,output_type, EXISTS(SELECT 1 FROM design_versions WHERE plan_id=?),EXISTS(SELECT 1 FROM design_image_jobs j JOIN design_image_sessions s ON s.id=j.session_id WHERE s.plan_id=?) OR EXISTS(SELECT 1 FROM design_html_jobs j JOIN design_html_sessions s ON s.id=j.session_id WHERE s.plan_id=?) FROM design_plans WHERE id=?`, id, id, id, id).Scan(&p.Title, &p.OutputType, &p.Locked, &p.OutputTypeLocked); err != nil {
 		return nil, err
 	}
 	rows, err := q.Query(`SELECT title FROM design_questions WHERE plan_id=? ORDER BY sort_order`, id)
@@ -128,15 +140,30 @@ func (r *Repository) ListDesignPlans(classID int) ([]DesignPlan, error) {
 }
 
 func (r *Repository) SaveDesignPlan(p DesignPlan) (*DesignPlan, error) {
-	p.Title = strings.TrimSpace(p.Title)
+	if len(p.ClassIDs) > 200 {
+		return nil, fmt.Errorf("一次最多绑定200个班级")
+	}
+	var err error
+	p.Title, err = normalizeDesignText(p.Title, "方案标题", designTitleLimit, true)
+	if err != nil {
+		return nil, err
+	}
 	if p.Title == "" || len(p.Questions) == 0 {
 		return nil, fmt.Errorf("请填写方案标题并至少添加一道问题")
 	}
+	if len(p.Questions) > designQuestionCount {
+		return nil, fmt.Errorf("最多%d道问题", designQuestionCount)
+	}
+	total := 0
 	for i := range p.Questions {
-		p.Questions[i] = strings.TrimSpace(p.Questions[i])
-		if p.Questions[i] == "" {
-			return nil, fmt.Errorf("第%d道问题不能为空", i+1)
+		p.Questions[i], err = normalizeDesignText(p.Questions[i], fmt.Sprintf("第%d道问题", i+1), designQuestionLimit, true)
+		if err != nil {
+			return nil, err
 		}
+		total += utf8.RuneCountInString(p.Questions[i])
+	}
+	if total > designQuestionsTotal {
+		return nil, fmt.Errorf("问题合计最多%d字", designQuestionsTotal)
 	}
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -144,6 +171,9 @@ func (r *Repository) SaveDesignPlan(p DesignPlan) (*DesignPlan, error) {
 	}
 	defer tx.Rollback()
 	if p.ID == 0 {
+		if p.OutputType == "" {
+			p.OutputType = "image"
+		}
 		res, err := tx.Exec(`INSERT INTO design_plans(title) VALUES(?)`, p.Title)
 		if err != nil {
 			return nil, err
@@ -164,6 +194,12 @@ func (r *Repository) SaveDesignPlan(p DesignPlan) (*DesignPlan, error) {
 		if err != nil {
 			return nil, err
 		}
+		if p.OutputType == "" {
+			p.OutputType = old.OutputType
+		}
+		if old.OutputTypeLocked && p.OutputType != old.OutputType {
+			return nil, fmt.Errorf("已发起作品生成，作品类型已锁定，请新建方案")
+		}
 		if old.Locked {
 			a, _ := json.Marshal(old.Questions)
 			b, _ := json.Marshal(p.Questions)
@@ -172,7 +208,10 @@ func (r *Repository) SaveDesignPlan(p DesignPlan) (*DesignPlan, error) {
 			}
 		}
 	}
-	if _, err = tx.Exec(`UPDATE design_plans SET title=? WHERE id=?`, p.Title, p.ID); err != nil {
+	if p.OutputType != "image" && p.OutputType != "html" {
+		return nil, fmt.Errorf("不支持的作品类型")
+	}
+	if _, err = tx.Exec(`UPDATE design_plans SET title=?,output_type=? WHERE id=?`, p.Title, p.OutputType, p.ID); err != nil {
 		return nil, err
 	}
 	var submitted bool
@@ -278,7 +317,7 @@ func loadDesignVersions(q designQuery, planID, studentID int) ([]DesignVersion, 
 
 func designComparable(s string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
+		if unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) || (r >= 0xfe00 && r <= 0xfe0f) || (r >= 0xe0100 && r <= 0xe01ef) {
 			return -1
 		}
 		return r
@@ -288,6 +327,10 @@ func designComparable(s string) string {
 func (r *Repository) SubmitDesignVersion(planID, classID, studentID, version int, answers []string) error {
 	if version != 1 && version != 2 {
 		return fmt.Errorf("只能提交第一版或第二版")
+	}
+	answers, err := normalizeDesignAnswers(answers)
+	if err != nil {
+		return err
 	}
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -387,8 +430,22 @@ func (r *Repository) DesignRecords(planID, classID int) ([]DesignStudentRecord, 
 		if err != nil {
 			return nil, err
 		}
+		if err = r.db.QueryRow(`SELECT COALESCE((SELECT COUNT(*) FROM design_html_versions v JOIN design_html_sessions s ON s.id=v.session_id WHERE s.plan_id=? AND s.student_id=?),0),COALESCE((SELECT final_version_id FROM design_html_sessions WHERE plan_id=? AND student_id=?),''),COALESCE((SELECT finalized_at FROM design_html_sessions WHERE plan_id=? AND student_id=?),'')`, planID, items[i].StudentID, planID, items[i].StudentID, planID, items[i].StudentID).Scan(&items[i].HTMLVersionCount, &items[i].FinalHTMLVersionID, &items[i].HTMLFinalizedAt); err != nil {
+			return nil, err
+		}
 	}
 	return items, nil
+}
+
+func requireDesignOutputType(q designQuery, planID int, expected string) error {
+	var mode string
+	if err := q.QueryRow(`SELECT output_type FROM design_plans WHERE id=?`, planID).Scan(&mode); err != nil {
+		return err
+	}
+	if mode != expected {
+		return fmt.Errorf("方案作品类型已改变，请刷新后重新确认生成内容")
+	}
+	return nil
 }
 
 func designStage(q designQuery, planID, classID int) (int, error) {

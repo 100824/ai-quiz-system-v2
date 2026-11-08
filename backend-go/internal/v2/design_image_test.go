@@ -374,6 +374,10 @@ func TestDesignImageFailureRecoveryAndPaging(t *testing.T) {
 		t.Fatal("recovery lost idempotency")
 	}
 	for n := 0; n < 25; n++ {
+		// Pagination fixtures represent many lessons, not a burst of paid requests.
+		if _, err = r.db.Exec(`UPDATE design_image_jobs SET created_at=?`, time.Now().UTC().Add(-2*time.Minute).Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
 		job, err := r.EnqueueDesignImage(p.ID, 1, 1, fmt.Sprintf("page-%d", n), "修改")
 		if err != nil {
 			t.Fatal(err)

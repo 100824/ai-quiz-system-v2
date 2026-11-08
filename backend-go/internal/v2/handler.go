@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -632,6 +633,15 @@ func (h *Handler) HandleStudentAIChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) streamProvider(ctx context.Context, provider aiProvider, systemPrompt string, history []AIChatMessage, onDelta func(string) error) (string, error) {
+	return h.streamProviderLimited(ctx, provider, systemPrompt, history, onDelta, 0, 0)
+}
+
+func (h *Handler) streamProviderLimited(ctx context.Context, provider aiProvider, systemPrompt string, history []AIChatMessage, onDelta func(string) error, maxTokens, maxBytes int) (string, error) {
+	return h.streamProviderOutput(ctx, provider, systemPrompt, history, onDelta, nil, maxTokens, maxBytes)
+}
+
+// A reasoning callback opts this request into thinking without changing classroom chat.
+func (h *Handler) streamProviderOutput(ctx context.Context, provider aiProvider, systemPrompt string, history []AIChatMessage, onDelta, onReasoning func(string) error, maxTokens, maxBytes int) (string, error) {
 	messages := []AIChatMessage{{Role: "system", Content: systemPrompt}}
 	messages = append(messages, history...)
 
@@ -649,6 +659,13 @@ func (h *Handler) streamProvider(ctx context.Context, provider aiProvider, syste
 		payload["reasoning_effort"] = "low"
 		payload["temperature"] = 1.0
 		payload["max_tokens"] = 4096
+	}
+	if onReasoning != nil {
+		payload["thinking"] = map[string]string{"type": "enabled"}
+		payload["reasoning_effort"] = "low"
+	}
+	if maxTokens > 0 {
+		payload["max_tokens"] = maxTokens
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -675,7 +692,14 @@ func (h *Handler) streamProvider(ctx context.Context, provider aiProvider, syste
 	}
 	var answer strings.Builder
 	finished := false
-	scanner := bufio.NewScanner(resp.Body)
+	var stream io.Reader = resp.Body
+	var limited *io.LimitedReader
+	if maxBytes > 0 {
+		limited = &io.LimitedReader{R: resp.Body, N: int64(maxBytes)*16 + 1}
+		stream = limited
+	}
+	reasoningBytes := 0
+	scanner := bufio.NewScanner(stream)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	for scanner.Scan() {
 		line := strings.TrimSuffix(scanner.Text(), "\r")
@@ -713,10 +737,21 @@ func (h *Handler) streamProvider(ctx context.Context, provider aiProvider, syste
 				}
 				finished = true
 			}
-			// Reasoning content is intentionally ignored; only the final answer is shown.
+			if onReasoning != nil && choice.Delta.ReasoningContent != "" {
+				reasoningBytes += len(choice.Delta.ReasoningContent)
+				if maxBytes > 0 && reasoningBytes > 256<<10 {
+					return "", designArtifactError("模型思考内容过长，请简化要求后重试")
+				}
+				if err := onReasoning(choice.Delta.ReasoningContent); err != nil {
+					return "", fmt.Errorf("更新思考内容失败：%w", err)
+				}
+			}
 			delta := choice.Delta.Content
 			if delta == "" {
 				continue
+			}
+			if maxBytes > 0 && answer.Len()+len(delta) > maxBytes {
+				return "", designArtifactError("生成网页超过512KiB，请简化页面要求后重试")
 			}
 			answer.WriteString(delta)
 			if onDelta != nil {
@@ -725,6 +760,9 @@ func (h *Handler) streamProvider(ctx context.Context, provider aiProvider, syste
 				}
 			}
 		}
+	}
+	if limited != nil && limited.N <= 0 {
+		return "", designArtifactError("模型响应过大，请简化要求后重试")
 	}
 	if err := scanner.Err(); err != nil {
 		return "", fmt.Errorf("读取 %s 流式响应失败：%w", provider.ID, err)

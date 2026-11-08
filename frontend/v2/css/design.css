@@ -113,6 +113,13 @@
 .design-generation-status h3 { margin: 0 0 8px; text-align: left; color: #3a65a0; font-size: 23px; }
 .design-generation-status p { margin: 0; color: #6c88a9; font-size: 14px; }
 .design-generation-spinner { width: 44px; height: 44px; flex-shrink: 0; border: 4px solid #c9defa; border-top-color: #3b82f6; border-radius: 50%; animation: design-spin 1s linear infinite; }
+.design-thinking { margin: 20px 0; padding: 16px 20px; border: 1px solid #c9defa; border-radius: 16px; background: #f6faff; color: #486b98; }
+.design-thinking summary { cursor: pointer; font-weight: 600; }
+.design-thinking-status { float: right; margin-left: 16px; color: #6c88a9; font-size: 13px; font-weight: 400; }
+.design-thinking-hint { margin: 14px 0 0; color: #6c88a9; font-size: 14px; line-height: 1.7; }
+.design-character-count { display: block; margin: 6px 0 12px; text-align: right; color: #6c88a9; font-size: 12px; line-height: 1.5; }
+.design-character-count.is-over-limit { color: #be3545; font-weight: 600; }
+.design-thinking pre { max-height: 240px; overflow: auto; margin: 14px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 15px; line-height: 1.7; color: #536982; }
 @keyframes design-spin { to { transform: rotate(360deg); } }
 .design-file-button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 16px; border: 1px solid #bfd6f2; border-radius: 12px; color: #4777af; background: #eff6ff; font-weight: 600; text-decoration: none; font-size: 14px; }
 .design-file-button:hover { background: #e0edff; border-color: #83b2ed; }
@@ -121,6 +128,14 @@
 .design-image-compose button { min-width: 150px; }
 .design-page .design-image-confirm { display: flex; align-items: center; gap: 10px; margin: 20px 0 28px; font-size: 15px; }
 .design-page .design-image-confirm input { width: 24px; height: 24px; flex-shrink: 0; margin: 0; accent-color: #3b82f6; cursor: pointer; }
+.design-html-thumb { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; background: #f5f9ff; border: 1px solid #d7e5f5; border-radius: 12px; color: #6d88a3; font-size: 14px; }
+.design-html-thumb iframe { position: absolute; top: 0; left: 0; width: 1024px; height: 768px; border: 0; transform-origin: top left; pointer-events: none; background: #fff; }
+.design-latest .design-html-thumb { max-width: 560px; margin: 16px auto; }
+.design-latest > .design-file-button { margin: 14px 10px 0 0; }
+.design-web-preview { margin: 0; height: 100dvh; display: flex; flex-direction: column; background: #f3f8ff; color: #3a5e8e; }
+.design-preview-toolbar { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 16px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #d7e5f5; }
+.design-web-preview > iframe { border: 0; width: 100%; flex: 1; min-height: 0; background: #fff; }
+.design-web-preview > p { margin: 20px; }
 .design-image-thumb > .design-file-button { margin-top: auto; }
 .design-image-panel .design-actions { align-items: center; justify-content: space-between; }
 .design-image-panel .design-version-picker { align-items: center; }

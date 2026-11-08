@@ -1,16 +1,12 @@
 package v2
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"image"
 	_ "image/jpeg"
 	_ "image/png"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -21,13 +17,17 @@ import (
 )
 
 type DesignImageService struct {
-	repo       *Repository
-	dir        string
-	url        string
-	client     *http.Client
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	workerLock *os.File
+	repo         *Repository
+	dir          string
+	url          string
+	client       *http.Client
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	workerLock   *os.File
+	htmlDir      string
+	htmlHandler  *Handler
+	claimMu      sync.Mutex
+	imageBuffers chan struct{}
 }
 
 func (h *Handler) StartDesignImages(ctx context.Context, dir string) error {
@@ -35,6 +35,8 @@ func (h *Handler) StartDesignImages(ctx context.Context, dir string) error {
 	if err != nil {
 		return err
 	}
+	s.htmlDir = filepath.Join(filepath.Dir(s.dir), "design-html")
+	s.htmlHandler = h
 	if err = s.Start(ctx); err != nil {
 		return err
 	}
@@ -47,6 +49,9 @@ func (h *Handler) StopDesignImages() {
 	}
 }
 func newDesignImageService(repo *Repository, dir, url string, client *http.Client) (*DesignImageService, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	dir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -54,11 +59,14 @@ func newDesignImageService(repo *Repository, dir, url string, client *http.Clien
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	return &DesignImageService{repo: repo, dir: dir, url: url, client: client}, nil
+	return &DesignImageService{repo: repo, dir: dir, htmlDir: filepath.Join(dir, "html"), url: url, client: client, imageBuffers: make(chan struct{}, 2)}, nil
 }
 func (s *DesignImageService) Start(parent context.Context) error {
 	if s.workerLock != nil {
-		return fmt.Errorf("图片任务服务已启动")
+		return fmt.Errorf("作品生成任务服务已启动")
+	}
+	if err := os.MkdirAll(s.htmlDir, 0700); err != nil {
+		return err
 	}
 	// Lock the database owner before recovering jobs. A second process must not
 	// mark another process's in-flight, potentially paid requests as interrupted.
@@ -76,14 +84,18 @@ func (s *DesignImageService) Start(parent context.Context) error {
 	}
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		lock.Close()
-		return fmt.Errorf("同一数据库已有图片任务进程，拒绝重复启动：%w", err)
+		return fmt.Errorf("同一数据库已有作品生成进程，拒绝重复启动：%w", err)
 	}
 	if err := s.repo.RecoverDesignImageJobs(); err != nil {
 		lock.Close()
 		return err
 	}
+	if err := s.repo.RecoverDesignHTMLJobs(); err != nil {
+		lock.Close()
+		return err
+	}
 	s.workerLock = lock
-	log.Printf("design image worker started: pid=%d", os.Getpid())
+	log.Printf("design generation worker started: pid=%d", os.Getpid())
 	ctx, cancel := context.WithCancel(parent)
 	s.cancel = cancel
 	for n := 0; n < 10; n++ {
@@ -94,9 +106,13 @@ func (s *DesignImageService) Start(parent context.Context) error {
 				if ctx.Err() != nil {
 					return
 				}
-				j, err := s.repo.ClaimDesignImageJob()
+				j, hj, err := s.claimNextGeneration()
 				if err == nil {
-					s.run(ctx, j)
+					if hj != nil {
+						s.runHTML(ctx, hj)
+					} else {
+						s.run(ctx, j)
+					}
 					continue
 				}
 				if err != sql.ErrNoRows {
@@ -132,6 +148,12 @@ func (s *DesignImageService) imagePath(file string) (string, error) {
 }
 
 func (s *DesignImageService) run(parent context.Context, j *DesignImageJob) {
+	defer func() {
+		if failure := recover(); failure != nil {
+			log.Printf("design image job %s panic (%T)", j.ID, failure)
+			_ = s.repo.FailDesignImageJob(j, "图片生成出现异常，请稍后重试。")
+		}
+	}()
 	ctx, cancel := context.WithTimeout(parent, 240*time.Second)
 	defer cancel()
 	i, err := s.generate(ctx, j)
@@ -147,6 +169,10 @@ func (s *DesignImageService) run(parent context.Context, j *DesignImageJob) {
 		// All upstream failures are converted to controlled messages; never log keys, raw bodies or prompts.
 		log.Printf("design image job %s failed: %v", j.ID, err)
 		text := "图片生成失败，请重试。"
+		var bounded designArtifactError
+		if errors.As(err, &bounded) {
+			text = bounded.Error()
+		}
 		if ctx.Err() != nil {
 			text = "图片生成超时或中断，请重试。"
 		}
@@ -157,36 +183,25 @@ func (s *DesignImageService) run(parent context.Context, j *DesignImageJob) {
 }
 
 func (s *DesignImageService) generate(ctx context.Context, j *DesignImageJob) (*DesignImage, error) {
+	if err := checkDesignStorage(s.dir, designImageLimit); err != nil {
+		return nil, err
+	}
 	key := envFirst("ARK_API_KEY", "ARK_KEY")
 	if key == "" {
 		return nil, fmt.Errorf("未配置图片模型密钥")
 	}
-	body := map[string]any{"model": designImageModel, "prompt": j.Prompt, "size": "1K", "response_format": "b64_json", "output_format": "jpeg"}
-	if j.SourceImageID != "" {
-		previous, err := scanDesignImage(s.repo.db.QueryRow(`SELECT `+designImageColumns+` FROM design_images WHERE id=? AND session_id=?`, j.SourceImageID, j.SessionID))
-		if err != nil {
-			return nil, err
-		}
-		path, err := s.imagePath(previous.FileName)
-		if err != nil {
-			return nil, err
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		body["image"] = "data:" + http.DetectContentType(data) + ";base64," + base64.StdEncoding.EncodeToString(data)
-	}
-	payload, err := json.Marshal(body)
+	payload, err := s.imageRequestBody(ctx, j)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewReader(payload))
+	defer payload.Close()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, payload)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
+	req.ContentLength = payload.size
 	response, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("图片服务网络请求失败")
@@ -195,25 +210,17 @@ func (s *DesignImageService) generate(ctx context.Context, j *DesignImageJob) (*
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("图片服务状态异常：%d", response.StatusCode)
 	}
-	var result struct {
-		Error json.RawMessage `json:"error"`
-		Data  []struct {
-			Base64 string `json:"b64_json"`
-		} `json:"data"`
+	// Network generation still has ten slots. Only large response decoding and
+	// saving share two memory slots, avoiding ten simultaneous image allocations.
+	select {
+	case s.imageBuffers <- struct{}{}:
+		defer func() { <-s.imageBuffers }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	if err = json.NewDecoder(io.LimitReader(response.Body, 64<<20)).Decode(&result); err != nil {
-		return nil, fmt.Errorf("图片服务响应格式错误")
-	}
-	if len(result.Error) > 0 && string(result.Error) != "null" || len(result.Data) != 1 {
-		return nil, fmt.Errorf("图片服务未返回单张图片")
-	}
-	data, err := base64.StdEncoding.DecodeString(result.Data[0].Base64)
-	if err != nil || len(data) == 0 || len(data) > 32<<20 {
-		return nil, fmt.Errorf("图片数据无效")
-	}
-	config, format, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || (format != "png" && format != "jpeg") || config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 32_000_000 {
-		return nil, fmt.Errorf("图片格式或尺寸无效")
+	data, config, format, err := decodeDesignImageResponse(response.Body)
+	if err != nil {
+		return nil, err
 	}
 	i := &DesignImage{ID: designRandomID(), Width: config.Width, Height: config.Height}
 	ext := ".jpg"

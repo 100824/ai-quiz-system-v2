@@ -1,14 +1,19 @@
 import { api, apiBase } from '../core/api.js';
-import { escapeHtml as esc, versionStatus, localTime } from './shared.js?v=2026110201';
-import { imageURL, jobLabel } from './images.js?v=2026110801';
+import { escapeHtml as esc, versionStatus, localTime } from './shared.js?v=2026110811';
+import { imageURL, jobLabel } from './images.js?v=2026110811';
+import { showStudentHTML } from './html-teacher.js?v=2026110805';
+import { designLimits, designTextError, characterCount, attachDesignCounters } from './limits.js?v=2026110811';
 
 const $ = (id) => document.getElementById(id);
 let plans = [], classes = [], current = null, records = [], saving = false, recordsRequest = 0, loading = false, dirty = false;
 let progressRequest = 0, progressClassId = '', currentStage = 1;
+let htmlPreviews=[];
+const clearHTMLPreviews=()=>{htmlPreviews.forEach(stop=>stop());htmlPreviews=[];};
 const emptyPlan = () => ({ id: 0, title: '', questions: [''], classIds: [], locked: false });
 function feedback(text, error = false) {
   const node = $('dpMessage'); if (!node) return;
   node.textContent = text; node.className = error ? 'error-message' : 'success-message';
+  if(error)node.scrollIntoView({behavior:'smooth',block:'center'});
   const status = $('dpSaveStatus');
   if (status) {
     status.textContent = text === '方案保存成功。' ? '保存成功，已显示在上方“我的方案”列表。' : text;
@@ -34,6 +39,7 @@ export async function loadDesignTeacher() {
 }
 
 function render() {
+  clearHTMLPreviews();
   ++recordsRequest;
   records = [];
   $('design').innerHTML = `
@@ -49,8 +55,10 @@ function render() {
     <div id="dpEditor" class="panel span-5 design-config-card">
       <div class="design-panel-heading"><div><h2>${current.id ? '编辑方案' : '创建新方案'}</h2><p id="dpSaveStatus" class="meta">${current.id ? '已保存，可在上方“我的方案”中找到。' : '尚未保存：填写标题和问题后，点击“保存方案”。'}</p></div><button id="dpSaveTop" type="submit" form="dpForm">保存方案</button></div>
       <label class="design-switch-label" for="dpSelect">快速切换方案</label><select id="dpSelect" aria-label="选择方案"><option value="0" ${!current.id ? 'selected' : ''}>创建新方案（未保存）</option>${plans.map((p) => `<option value="${p.id}" ${p.id === current.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select>
-      <form id="dpForm" class="form-row">
+      <form id="dpForm" class="form-row" novalidate>
         <label for="dpTitle">方案标题</label><input id="dpTitle" value="${esc(current.title)}" required>
+        <label for="dpOutputType">作品类型</label><select id="dpOutputType" ${current.outputTypeLocked?'disabled':''}><option value="image" ${current.outputType!=='html'?'selected':''}>生成图片</option><option value="html" ${current.outputType==='html'?'selected':''}>生成 HTML 网页</option></select>
+        <p class="meta">${current.outputTypeLocked?'已发起作品生成，作品类型已锁定。需要其他类型请新建方案。':'首次发起生成前可切换类型。HTML 网页可直接打开和离线下载。'}</p>
         <p class="meta">${current.locked ? '已有学生提交第一版，题目和顺序已锁定。可调整标题与班级绑定；需修改问题请新建方案。' : '全部为开放式问题，学生按以下顺序填写。'}</p>
         <div id="dpQuestions"></div>
         ${current.locked ? '' : '<button id="dpAdd" type="button" class="secondary">添加问题</button>'}
@@ -70,7 +78,7 @@ function render() {
       <h2>学生方案记录</h2><p class="meta">${current.id ? `当前方案：${esc(current.title)}` : '请先保存新方案，或在“我的方案”中选择已有方案。'}</p>
       <div class="form-row"><label for="dpClassFilter">班级</label><select id="dpClassFilter"><option value="">全部班级（含历史提交）</option>${classes.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
       <label for="dpStatusFilter">提交状态</label><select id="dpStatusFilter"><option value="">全部状态</option><option value="0">未提交</option><option value="1">仅第一版</option><option value="2">两版完成</option><option value="images">已生成未提交</option><option value="final">最终作品已提交</option></select>
-      <div class="inline-row"><button id="dpRefresh" type="button" class="secondary">刷新记录</button><button id="dpExport" type="button" ${current.id ? '' : 'disabled'}>导出文字 Excel</button><button id="dpImageExport" type="button" ${current.id ? '' : 'disabled'}>导出全部图片 ZIP</button></div></div>
+      <div class="inline-row"><button id="dpRefresh" type="button" class="secondary">刷新记录</button><button id="dpExport" type="button" ${current.id ? '' : 'disabled'}>导出文字 Excel</button><button id="dpImageExport" type="button" ${current.id ? '' : 'disabled'}>导出全部${current.outputType==='html'?'网页':'图片'} ZIP</button></div></div>
       <p id="dpRecordMessage" role="status"></p><div id="dpRecords"></div>
     </div>
   </div>`;
@@ -87,7 +95,8 @@ function render() {
   document.querySelectorAll('[data-dp-open]').forEach((button) => { button.onclick = () => { void choosePlan(Number(button.dataset.dpOpen), button.hasAttribute('data-dp-records') ? 'dpRecordsPanel' : 'dpEditor'); }; });
   $('dpForm').addEventListener('input', markDirty);
   $('dpForm').addEventListener('change', markDirty);
-  $('dpAdd')?.addEventListener('click', () => { readQuestions(); current.questions.push(''); markDirty(); renderQuestions(); });
+  attachDesignCounters($('dpForm'),'#dpTitle',designLimits.title);
+  $('dpAdd')?.addEventListener('click', () => { readQuestions(); if(current.questions.length>=designLimits.questionCount){feedback(`最多${designLimits.questionCount}道问题`,true);return;} current.questions.push(''); markDirty(); renderQuestions(); });
   $('dpForm').onsubmit = save;
   $('dpClassFilter').onchange = loadRecords;
   $('dpStatusFilter').onchange = renderRecords;
@@ -120,8 +129,9 @@ async function loadProgress() {
     $('dpActivePlanText').textContent=`学生当前方案：${active.plan?.title || '尚未指定'}`;
     $('dpSetActive').disabled=active.plan?.id===current.id;
     $('dpSetActive').textContent=active.plan?.id===current.id?'正在向该班学生展示':'设为该班学生当前方案';
-    $('dpProgressText').textContent = `当前进度：${['','第一版方案','第二版方案','图片环节'][currentStage]}`;
-    $('dpAdvance').textContent = currentStage === 1 ? '开始第二版' : currentStage === 2 ? '开启图片环节' : '已全部开放';
+    const kind=current.outputType==='html'?'网页':'图片';
+    $('dpProgressText').textContent = `当前进度：${['','第一版方案','第二版方案',`${kind}环节`][currentStage]}`;
+    $('dpAdvance').textContent = currentStage === 1 ? '开始第二版' : currentStage === 2 ? `开启${kind}环节` : '已全部开放';
     $('dpAdvance').disabled = currentStage >= 3;
   } catch (error) { if (request === progressRequest) $('dpProgressText').textContent = `读取失败：${error.message}`; }
 }
@@ -148,6 +158,8 @@ function readQuestions() {
 
 function renderQuestions() {
   $('dpQuestions').innerHTML = current.questions.map((q, i) => `<div class="design-question-edit"><span>问题 ${i + 1}</span><textarea data-dp-question="${i}" aria-label="第${i + 1}道问题" placeholder="请输入学生需要回答的问题" ${current.locked ? 'readonly' : 'required'}>${esc(q)}</textarea>${current.locked ? '' : `<div class="design-question-tools"><button type="button" data-dp-up="${i}" ${i === 0 ? 'disabled' : ''}>上移</button><button type="button" data-dp-down="${i}" ${i === current.questions.length - 1 ? 'disabled' : ''}>下移</button><button type="button" data-dp-remove="${i}" class="secondary">删除</button></div>`}</div>`).join('');
+  attachDesignCounters($('dpQuestions'),'textarea:not([readonly])',designLimits.question);
+  if($('dpAdd')) $('dpAdd').disabled=current.questions.length>=designLimits.questionCount;
   $('dpQuestions').onclick = (event) => {
     const button = event.target.closest('button'); if (!button || current.locked) return;
     markDirty();
@@ -165,12 +177,16 @@ function renderQuestions() {
 async function save(event) {
   event.preventDefault(); if (saving) return;
   readQuestions();
-  const payload = { title: $('dpTitle').value.trim(), questions: current.questions.map((q) => q.trim()), classIds: Array.from(document.querySelectorAll('[data-dp-class]:checked'), (node) => Number(node.dataset.dpClass)) };
+  const payload = { title: $('dpTitle').value.trim(), outputType:$('dpOutputType').value, questions: current.questions.map((q) => q.trim()), classIds: Array.from(document.querySelectorAll('[data-dp-class]:checked'), (node) => Number(node.dataset.dpClass)) };
   if (!payload.title || !payload.questions.length || payload.questions.some((q) => !q)) { feedback('请填写标题，并至少添加一道非空问题。', true); return; }
+  const titleError=designTextError($('dpTitle').value,'方案标题',designLimits.title);
+  const questionError=current.questions.map((q,i)=>designTextError(q,`第${i+1}道问题`,designLimits.question)).find(Boolean);
+  if(titleError||questionError){feedback(titleError||questionError,true);return;}
+  if(payload.questions.length>designLimits.questionCount || payload.questions.reduce((n,q)=>n+characterCount(q),0)>designLimits.questionsTotal){feedback(`最多${designLimits.questionCount}道问题，问题合计最多${designLimits.questionsTotal}字`,true);return;}
   saving = true;
   feedback('正在保存方案…');
   // Freeze the editor during the request so the saved plan cannot overwrite new input.
-  const controls = [...$('dpForm').querySelectorAll('input,textarea,button'), ...document.querySelectorAll('[data-dp-open],#dpSaveTop')];
+  const controls = [...$('dpForm').querySelectorAll('input,textarea,select,button'), ...document.querySelectorAll('[data-dp-open],#dpSaveTop')];
   const disabledBefore = controls.map((node) => node.disabled);
   controls.forEach((node) => { node.disabled = true; }); $('dpSelect').disabled = true; $('dpNew').disabled = true;
   try {
@@ -189,6 +205,7 @@ async function save(event) {
 }
 
 async function loadRecords() {
+  clearHTMLPreviews();
   const request = ++recordsRequest;
   records = [];
   if (!current.id) { records = []; $('dpRecords').innerHTML = '<div class="empty">保存方案后即可查看学生记录。</div>'; return; }
@@ -203,13 +220,15 @@ async function loadRecords() {
 }
 
 function renderRecords() {
+  clearHTMLPreviews();
   const status = $('dpStatusFilter').value;
-  const filtered = records.filter((s) => !status || (status === 'images' ? s.imageCount > 0 && !s.finalImageId : status === 'final' ? !!s.finalImageId : String(s.versions.length) === status));
+  const displayed=current.outputType==='html'?records.map(s=>({...s,imageCount:s.htmlVersionCount||0,finalImageId:s.finalHtmlVersionId||'',finalizedAt:s.htmlFinalizedAt})):records;
+  const filtered = displayed.filter((s) => !status || (status === 'images' ? s.imageCount > 0 && !s.finalImageId : status === 'final' ? !!s.finalImageId : String(s.versions.length) === status));
   $('dpRecords').innerHTML = filtered.length ? filtered.map((s) => {
     const first = s.versions[0], second = s.versions[1];
     return `<details class="design-record" data-student-id="${s.studentId}"><summary>${esc(s.className)} · ${esc(s.name)} · ${s.finalImageId ? '最终作品已提交' : s.imageCount ? '已生成未提交' : versionStatus(s.versions.length)}</summary>
       ${first ? `<p class="meta">第一版：${esc(localTime(first.submittedAt))}；第二版：${esc(localTime(second?.submittedAt))}</p><p>${esc(first.title)}</p>${first.questions.map((q, i) => `<h4>${i + 1}. ${esc(q)}</h4><div class="design-compare"><div><strong>第一版</strong><div class="design-readonly">${esc(first.answers[i])}</div></div><div><strong>第二版</strong><div class="design-readonly">${esc(second?.answers[i] ?? '尚未提交')}</div></div></div>`).join('')}` : '<p class="meta">尚未提交第一版方案。</p>'}
-      <div class="design-actions"><button type="button" class="secondary" data-image-student="${s.studentId}" ${s.imageCount || s.versions.length === 2 ? '' : 'disabled'}>查看图片与对话</button></div><div data-image-details="${s.studentId}"></div>
+      <div class="design-actions"><button type="button" class="secondary" data-image-student="${s.studentId}" ${s.imageCount || s.versions.length === 2 ? '' : 'disabled'}>查看${current.outputType==='html'?'网页':'图片'}与对话</button></div><div data-image-details="${s.studentId}"></div>
     </details>`;
   }).join('') : '<div class="empty">暂无符合条件的学生。</div>';
   $('dpRecords').querySelectorAll('[data-image-student]').forEach((button) => { button.onclick = () => showStudentImages(button); });
@@ -218,6 +237,7 @@ function renderRecords() {
 async function showStudentImages(button) {
   const studentId = Number(button.dataset.imageStudent), planId = current.id;
   const container = $('dpRecords').querySelector(`[data-image-details="${studentId}"]`);
+  if(current.outputType==='html') { const request=recordsRequest; const stop=await showStudentHTML({button,container,planId,studentId});if(request===recordsRequest)htmlPreviews.push(stop);else stop();return; }
   button.disabled = true;
   let images = [], messages = [], beforeVersion = 0, beforeMessage = 0;
   const fetchPage = async () => {
@@ -243,7 +263,7 @@ async function download(images = false) {
   const button = $(images ? 'dpImageExport' : 'dpExport'); button.disabled = true;
   try {
     const cid = $('dpClassFilter').value;
-    const response = await fetch(`${apiBase()}/design-plans/${current.id}/${images ? 'images-export' : 'export'}${cid ? `?classId=${cid}` : ''}`);
+    const response = await fetch(`${apiBase()}/design-plans/${current.id}/${images ? (current.outputType==='html'?'html-export':'images-export') : 'export'}${cid ? `?classId=${cid}` : ''}`);
     if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '导出请求失败'); }
     const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a');
     link.href = url; link.download = `方案设计-${current.title}.${images ? 'zip' : 'xlsx'}`; document.body.append(link); link.click(); link.remove();

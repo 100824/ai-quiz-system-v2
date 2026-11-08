@@ -24,6 +24,7 @@ xiaohongshu-data/
 
 # Project node_modules
 node_modules/
+/outputs/
 
 # Data
 data/
@@ -31,6 +32,7 @@ backend-go/data/*.db
 backend-go/data/*.db-wal
 backend-go/data/*.db-shm
 backend-go/data/design-images/
+backend-go/data/design-html/
 backend-go/history-data/*.db
 backend-go/history-data/*.db-wal
 backend-go/history-data/*.db-shm

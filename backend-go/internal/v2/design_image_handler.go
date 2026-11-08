@@ -2,7 +2,6 @@ package v2
 
 import (
 	"archive/zip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -95,13 +94,13 @@ func (h *Handler) readDesignImageBody(w http.ResponseWriter, r *http.Request) (i
 		return 0, nil, err
 	}
 	var b designImageBody
-	err = json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&b)
+	err = readDesignJSON(w, r, &b)
 	return p, &b, err
 }
 func (h *Handler) handleDesignImageJob(w http.ResponseWriter, r *http.Request) {
 	p, b, err := h.readDesignImageBody(w, r)
 	if err != nil {
-		h.designResponse(w, nil, fmt.Errorf("请求内容无效"))
+		h.designResponse(w, nil, err)
 		return
 	}
 	if h.designImages == nil || envFirst("ARK_API_KEY", "ARK_KEY") == "" {

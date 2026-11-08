@@ -1,7 +1,6 @@
 package v2
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,6 +12,7 @@ func (h *Handler) registerDesignPlans(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/classes/{id}/design-active-plan", h.handleActiveDesignPlan)
 	mux.HandleFunc("PUT /api/v2/classes/{id}/design-active-plan", h.handleActiveDesignPlan)
 	h.registerDesignImages(mux)
+	h.registerDesignHTML(mux)
 	mux.HandleFunc("GET /api/v2/design-plans/{id}/classes/{classId}/progress", h.handleDesignProgress)
 	mux.HandleFunc("PUT /api/v2/design-plans/{id}/classes/{classId}/progress", h.handleDesignProgress)
 	mux.HandleFunc("GET /api/v2/design-plans", h.handleDesignPlans)
@@ -35,7 +35,7 @@ func (h *Handler) handleActiveDesignPlan(w http.ResponseWriter, r *http.Request)
 		var body struct {
 			PlanID int `json:"planId"`
 		}
-		err = json.NewDecoder(r.Body).Decode(&body)
+		err = readDesignJSON(w, r, &body)
 		if err == nil {
 			err = h.repo.SetActiveDesignPlan(cid, body.PlanID)
 		}
@@ -94,8 +94,8 @@ func (h *Handler) handleDesignPlans(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSaveDesignPlan(w http.ResponseWriter, r *http.Request) {
 	var p DesignPlan
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&p); err != nil {
-		h.designResponse(w, nil, fmt.Errorf("方案内容格式错误"))
+	if err := readDesignJSON(w, r, &p); err != nil {
+		h.designResponse(w, nil, err)
 		return
 	}
 	p.ID = 0
@@ -194,7 +194,7 @@ func (h *Handler) handleDesignProgress(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Stage int `json:"stage"`
 		}
-		if err = json.NewDecoder(r.Body).Decode(&body); err == nil {
+		if err = readDesignJSON(w, r, &body); err == nil {
 			err = h.repo.AdvanceDesignProgress(id, cid, body.Stage)
 		}
 		if err != nil {
@@ -218,8 +218,8 @@ func (h *Handler) handleSubmitDesignVersion(w http.ResponseWriter, r *http.Reque
 		Version   int      `json:"version"`
 		Answers   []string `json:"answers"`
 	}
-	if err = json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&body); err != nil {
-		h.designResponse(w, nil, fmt.Errorf("提交内容格式错误"))
+	if err = readDesignJSON(w, r, &body); err != nil {
+		h.designResponse(w, nil, err)
 		return
 	}
 	err = h.repo.SubmitDesignVersion(id, body.ClassID, body.StudentID, body.Version, body.Answers)

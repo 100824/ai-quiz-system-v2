@@ -33,13 +33,35 @@ func TestDesignBrowserServer(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	t.Setenv("ARK_API_KEY", "browser-fixture-key")
+	t.Setenv("DEEPSEEK_KEY", "browser-text-fixture-key")
+	t.Setenv("GLM_KEY", "browser-text-fixture-glm")
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		var body struct {
-			Prompt string `json:"prompt"`
+			Prompt   string          `json:"prompt"`
+			Messages []AIChatMessage `json:"messages"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Messages) > 0 {
+			last := body.Messages[len(body.Messages)-1].Content
+			if strings.Contains(last, "模拟失败") {
+				http.Error(w, "fixture failure", 503)
+				return
+			}
+			code := designHTMLFixture
+			if len(body.Messages) > 2 {
+				code = strings.ReplaceAll(code, "绿色校园", "蓝色校园")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"先设计布局与按钮交互。<img src=x onerror=window.reasoningXSS=1>\"}}]}\n\n")
+			w.(http.Flusher).Flush()
+			if len(body.Messages) == 2 {
+				time.Sleep(6500 * time.Millisecond)
+			}
+			writeDesignHTMLStream(w, code)
+			return
+		}
 		time.Sleep(120 * time.Millisecond)
 		if strings.Contains(body.Prompt, "模拟失败") {
 			http.Error(w, "fixture failure", 503)
@@ -52,11 +74,14 @@ func TestDesignBrowserServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	h := NewHandler(repo)
+	h.deepSeekURL = upstream.URL
+	h.glmURL = upstream.URL
+	service.htmlHandler = h
 	if err = service.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	h := NewHandler(repo)
 	h.designImages = service
 	h.Register(mux)
 	mux.HandleFunc("GET /__test/image-calls", func(w http.ResponseWriter, r *http.Request) {

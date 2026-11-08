@@ -122,12 +122,12 @@ func designImagePrompt(v DesignVersion, message string, editing bool) string {
 
 func (r *Repository) EnqueueDesignImage(planID, classID, studentID int, key, message string, sourceAnswers ...[]string) (*DesignImageJob, error) {
 	key = strings.TrimSpace(key)
-	message = strings.TrimSpace(message)
-	if key == "" || len(key) > 128 {
+	if !designRequestKey.MatchString(key) {
 		return nil, fmt.Errorf("请求标识无效")
 	}
-	if len([]rune(message)) > 4000 {
-		return nil, fmt.Errorf("修改要求请控制在4000字以内")
+	message, err := normalizeDesignText(message, "补充或修改要求", designMessageLimit, false)
+	if err != nil {
+		return nil, err
 	}
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -138,6 +138,9 @@ func (r *Repository) EnqueueDesignImage(planID, classID, studentID int, key, mes
 		return nil, err
 	}
 	if err = validateDesignStudent(tx, planID, classID, studentID); err != nil {
+		return nil, err
+	}
+	if err = requireDesignOutputType(tx, planID, "image"); err != nil {
 		return nil, err
 	}
 	stage, err := designStage(tx, planID, classID)
@@ -179,6 +182,9 @@ func (r *Repository) EnqueueDesignImage(planID, classID, studentID int, key, mes
 	if active {
 		return nil, fmt.Errorf("已有生成任务，请等待完成")
 	}
+	if err = checkDesignGenerationBudget(tx, studentID); err != nil {
+		return nil, err
+	}
 	var source string
 	err = tx.QueryRow(`SELECT id FROM design_images WHERE session_id=? ORDER BY version DESC LIMIT 1`, sessionID).Scan(&source)
 	if err != nil && err != sql.ErrNoRows {
@@ -199,12 +205,9 @@ func (r *Repository) EnqueueDesignImage(planID, classID, studentID int, key, mes
 		if len(answers) != len(v.Questions) {
 			return nil, fmt.Errorf("请完整填写用于生成图片的内容")
 		}
-		v.Answers = make([]string, len(answers))
-		for n, answer := range answers {
-			v.Answers[n] = strings.TrimSpace(answer)
-			if v.Answers[n] == "" {
-				return nil, fmt.Errorf("第%d题的生成内容不能为空", n+1)
-			}
+		v.Answers, err = normalizeDesignAnswers(answers)
+		if err != nil {
+			return nil, err
 		}
 		snapshot, err = json.Marshal(v)
 		if err != nil {
@@ -214,7 +217,13 @@ func (r *Repository) EnqueueDesignImage(planID, classID, studentID int, key, mes
 			return nil, err
 		}
 	}
+	if err = validateDesignSnapshot(v); err != nil {
+		return nil, err
+	}
 	prompt := designImagePrompt(v, message, source != "")
+	if _, err = normalizeDesignText(prompt, "生成要求总长度", designPromptLimit, true); err != nil {
+		return nil, err
+	}
 	if message == "" {
 		message = "按第二版方案生成图片。"
 		if len(sourceAnswers) > 0 && sourceAnswers[0] != nil {
