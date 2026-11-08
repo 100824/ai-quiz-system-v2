@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +22,13 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	port := utils.Getenv("PORT", "8080")
+	addr := "0.0.0.0:" + port
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
 
 	dataDir := utils.ResolvePath("data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
@@ -91,10 +99,8 @@ func main() {
 	v2Handler.Register(mux)
 
 	appHandler := middleware.WithCORS(middleware.WithLogging(mux))
-	port := utils.Getenv("PORT", "8080")
-	addr := "0.0.0.0:" + port
 	log.Printf("Go backend listening on http://%s", addr)
-	if err := http.ListenAndServe(addr, appHandler); err != nil {
+	if err := http.Serve(listener, appHandler); err != nil {
 		log.Fatalf("listen: %v", err)
 	}
 }

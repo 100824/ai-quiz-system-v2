@@ -16,16 +16,18 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
 type DesignImageService struct {
-	repo   *Repository
-	dir    string
-	url    string
-	client *http.Client
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	repo       *Repository
+	dir        string
+	url        string
+	client     *http.Client
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	workerLock *os.File
 }
 
 func (h *Handler) StartDesignImages(ctx context.Context, dir string) error {
@@ -55,9 +57,33 @@ func newDesignImageService(repo *Repository, dir, url string, client *http.Clien
 	return &DesignImageService{repo: repo, dir: dir, url: url, client: client}, nil
 }
 func (s *DesignImageService) Start(parent context.Context) error {
-	if err := s.repo.RecoverDesignImageJobs(); err != nil {
+	if s.workerLock != nil {
+		return fmt.Errorf("图片任务服务已启动")
+	}
+	// Lock the database owner before recovering jobs. A second process must not
+	// mark another process's in-flight, potentially paid requests as interrupted.
+	var databaseFile string
+	if err := s.repo.db.QueryRow(`SELECT file FROM pragma_database_list WHERE name='main'`).Scan(&databaseFile); err != nil {
 		return err
 	}
+	lockPath := filepath.Join(s.dir, ".worker.lock")
+	if databaseFile != "" {
+		lockPath = databaseFile + ".design-images.lock"
+	}
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
+		return fmt.Errorf("同一数据库已有图片任务进程，拒绝重复启动：%w", err)
+	}
+	if err := s.repo.RecoverDesignImageJobs(); err != nil {
+		lock.Close()
+		return err
+	}
+	s.workerLock = lock
+	log.Printf("design image worker started: pid=%d", os.Getpid())
 	ctx, cancel := context.WithCancel(parent)
 	s.cancel = cancel
 	for n := 0; n < 2; n++ {
@@ -90,6 +116,11 @@ func (s *DesignImageService) Close() {
 	if s.cancel != nil {
 		s.cancel()
 		s.wg.Wait()
+		s.cancel = nil
+	}
+	if s.workerLock != nil {
+		s.workerLock.Close()
+		s.workerLock = nil
 	}
 }
 
@@ -114,13 +145,13 @@ func (s *DesignImageService) run(parent context.Context, j *DesignImageJob) {
 	}
 	if err != nil {
 		// All upstream failures are converted to controlled messages; never log keys, raw bodies or prompts.
-		log.Printf("design image job %s failed", j.ID)
+		log.Printf("design image job %s failed: %v", j.ID, err)
 		text := "图片生成失败，请重试。"
 		if ctx.Err() != nil {
 			text = "图片生成超时或中断，请重试。"
 		}
 		if e := s.repo.FailDesignImageJob(j, text); e != nil {
-			log.Printf("design image job state update failed: %s", j.ID)
+			log.Printf("design image job state update failed: %s: %v", j.ID, e)
 		}
 	}
 }

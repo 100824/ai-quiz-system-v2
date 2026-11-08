@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -442,6 +443,82 @@ func TestDesignImageWorkerFailureAndAlias(t *testing.T) {
 	t.Fatal("worker did not process queued job", j.ID)
 }
 
+func TestDesignImageDuplicateWorkerDoesNotInterrupt(t *testing.T) {
+	_, repo, plan := setupDesignImages(t)
+	completeDesignPlans(t, repo, plan.ID)
+	t.Setenv("ARK_API_KEY", "duplicate-worker-fixture")
+	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	finish := func() { releaseOnce.Do(func() { close(release) }) }
+	var calls atomic.Int32
+	data := designTestPNG(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		close(started)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(data)}}})
+	}))
+	defer upstream.Close()
+	defer finish()
+	dir := t.TempDir()
+	first, err := newDesignImageService(repo, dir, upstream.URL, upstream.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = first.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if _, err = repo.EnqueueDesignImage(plan.ID, 1, 1, "still-running", ""); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first worker did not start generation")
+	}
+	duplicate, err := newDesignImageService(repo, dir, upstream.URL, upstream.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = duplicate.Start(context.Background()); err == nil {
+		duplicate.Close()
+		t.Fatal("duplicate worker started and can interrupt the live task")
+	}
+	state, err := repo.DesignImageState(plan.ID, 1, 0, 0)
+	if err != nil || state.ActiveJob == nil || state.ActiveJob.Status != "running" {
+		t.Fatal("duplicate startup changed the running task", err)
+	}
+	finish()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		state, err = repo.DesignImageState(plan.ID, 1, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.ImageCount == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("original image generation did not finish")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// A stopped owner releases its lock so a replacement can start normally.
+	first.Close()
+	if err = duplicate.Start(context.Background()); err != nil {
+		t.Fatal("replacement could not start after owner stopped", err)
+	}
+	defer duplicate.Close()
+	if calls.Load() != 1 {
+		t.Fatal("replacement repeated the paid generation request")
+	}
+}
+
 func TestDesignImageDiskRestart(t *testing.T) {
 	dir := t.TempDir()
 	open := func() (*sql.DB, *Repository) {
@@ -524,6 +601,16 @@ func TestDesignImageDiskRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer svc.Close()
+	otherDB, otherRepo := open()
+	defer otherDB.Close()
+	duplicate, err := newDesignImageService(otherRepo, filepath.Join(dir, "other-images"), server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = duplicate.Start(context.Background()); err == nil {
+		duplicate.Close()
+		t.Fatal("same database accepted a worker with a different image directory")
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		s, err := repo.DesignImageState(p.ID, 2, 0, 0)
