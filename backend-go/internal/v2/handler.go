@@ -25,6 +25,7 @@ type Handler struct {
 	glmURL            string
 	aiProviderTimeout time.Duration
 	httpClient        *http.Client
+	designImages      *DesignImageService
 }
 
 func NewHandler(repo *Repository) *Handler {

@@ -64,6 +64,7 @@ async function login(p, name = '学生甲', classId = '1') {
   await p.waitForFunction(() => !document.querySelector('#designEnter').disabled && document.querySelector('#designNames').options.length > 0);
   await p.locator('#designName').fill(name); await p.locator('#designEnter').click(); await p.locator('#designWorkspace').waitFor({ state:'visible' });
 }
+async function activate(p, id, name = '学生甲') { await call('/classes/1/design-active-plan',{planId:id},'PUT'); await login(p,name); }
 async function save(p) {
   await p.locator('#dpSave').click(); await p.waitForFunction(() => document.querySelector('#dpMessage')?.textContent === '方案保存成功。');
 }
@@ -87,6 +88,9 @@ test('real full acceptance and defect probes', async (t) => {
       await tp.locator('[data-dp-down="0"]').click(); assert.equal(await tp.locator('[data-dp-question="0"]').inputValue(), '实施步骤是什么？');
       await tp.locator('[data-dp-up="1"]').click(); await tp.locator('[data-dp-class="1"]').check(); await save(tp);
       const plans = (await call('/design-plans')).data.plans; planID = plans[0].id;
+      await tp.waitForFunction(()=>document.querySelector('#dpSetActive')?.disabled===false);
+      await tp.locator('#dpSetActive').click();await tp.waitForFunction(()=>document.querySelector('#dpSetActive')?.textContent==='正在向该班学生展示');
+      assert.equal((await call('/classes/1/design-active-plan')).data.plan.id,planID);
       assert.deepEqual(plans[0].questions, ['校园目标是什么？','实施步骤是什么？']); assert.deepEqual(plans[0].classIds, [1]);
       assert.equal(await tp.locator('.design-plan-card').count(), 1);
       assert.match(await tp.locator('.design-plan-card').innerText(), /真实验收校园方案/);
@@ -101,13 +105,13 @@ test('real full acceptance and defect probes', async (t) => {
     if (!planID) return;
     await t.test('multiple plans, binding isolation, student identity and first version', async () => {
       extraID = (await call('/design-plans', { title:'第二个绑定方案', questions:['独立问题'], classIds:[1] })).data.plan.id;
+      assert.equal((await call(`/design-plans/${extraID}/student?classId=1&studentId=1`)).status,400);
       const other = await call('/design-plans', {title:'乙班独立方案',questions:['乙班问题'],classIds:[2]}); assert.equal(other.success, true);
       assert.equal((await call('/classes/2/design-plans?studentId=3')).data.plans.length, 1);
       assert.equal((await call(`/design-plans/${planID}/student?classId=2&studentId=3`)).status, 400);
       await sp.goto(origin + '/design.html'); await sp.locator('#designName').fill('不在名单'); await sp.locator('#designEnter').click();
       assert.match(await sp.locator('#designLoginMessage').innerText(), /完整姓名/);
-      await login(sp); assert.equal(await sp.locator('#designPlanSelect option').count(), 3); assert.equal(await sp.locator('[data-answer]').count(), 0);
-      await sp.locator('#designPlanSelect').selectOption(String(planID)); await sp.locator('[data-answer]').nth(1).waitFor();
+      await activate(sp,planID); assert.equal(await sp.locator('#designPlanSelect').count(), 0); await sp.locator('[data-answer]').nth(1).waitFor();
       await sp.locator('[data-answer]').nth(0).fill('  '); await sp.locator('[data-answer]').nth(1).fill('分组实施'); await sp.locator('#designSubmit').click();
       assert.match(await sp.locator('#designSubmitMessage').innerText(), /不能为空/);
       await sp.locator('[data-answer]').nth(0).fill('绿色校园 <script>不执行</script>'); await sp.locator('#designSubmit').click(); await sp.locator('#copyFirst').waitFor();
@@ -117,11 +121,15 @@ test('real full acceptance and defect probes', async (t) => {
       assert.equal(data.versions.length, 1); assert.equal(data.versions[0].answers[0], '绿色校园 <script>不执行</script>');
       report('多方案选择、跨班隔离、名单校验、第一版落库及复制', 'PASS');
     });
-    await t.test('persistent 120-second wait, changed second version, final read-only and relogin', async () => {
-      await login(sp); await sp.locator('#designPlanSelect').selectOption(String(planID)); await sp.locator('#copyFirst').waitFor();
+    await t.test('teacher progress unlocks second version, not elapsed time; submitted versions remain read-only', async () => {
+      await activate(sp,planID); await sp.locator('#copyFirst').waitFor();
       assert.equal(await sp.locator('[data-answer]').count(), 0);
       const first = (await call(`/design-plans/${planID}/student?classId=1&studentId=1`)).data.versions[0];
       await sp.clock.install({time:new Date(first.submittedAt)}); await sp.clock.fastForward(121000);
+      assert.equal(await sp.locator('[data-answer]').count(),0);
+      await tp.locator('#dpProgressRefresh').click();await tp.waitForFunction(()=>document.querySelector('#dpAdvance')?.disabled===false);
+      await tp.locator('#dpAdvance').click();await tp.waitForFunction(()=>document.querySelector('#dpProgressText')?.textContent==='当前进度：第二版方案');
+      await sp.clock.fastForward(3000);
       await sp.locator('[data-answer]').nth(1).waitFor(); assert.equal(await sp.locator('[data-answer]').nth(1).inputValue(), '分组实施');
       await sp.locator('#designSubmit').click(); assert.match(await sp.locator('#designSubmitMessage').innerText(), /至少优化修改/);
       await sp.locator('[data-answer]').nth(1).fill('分 组\n实施'); await sp.locator('#designSubmit').click(); assert.match(await sp.locator('#designSubmitMessage').innerText(), /至少优化修改/);
@@ -129,11 +137,11 @@ test('real full acceptance and defect probes', async (t) => {
       assert.equal(await sp.locator('#designVersion').inputValue(), '2'); assert.equal(await sp.locator('[data-answer]').count(), 0);
       await sp.locator('#copyFinal').click(); assert.match(await sp.evaluate(() => window.testCopy), /每周检查/);
       await sp.locator('#designVersion').selectOption('1'); await sp.locator('#copyFinal').click(); assert.doesNotMatch(await sp.evaluate(() => window.testCopy), /每周检查/);
-      await login(sp); await sp.locator('#designPlanSelect').selectOption(String(planID)); await sp.locator('#copyFinal').waitFor();
+      await activate(sp,planID); await sp.locator('#copyFinal').waitFor();
       assert.equal(await sp.locator('#designSubmit').count(), 0);
       const v = (await call(`/design-plans/${planID}/student?classId=1&studentId=1`)).data.versions;
       assert.equal(v.length,2);assert.equal(v[0].answers[1],'分组实施');assert.equal(v[1].answers[1],'分组实施，并每周检查效果');
-      report('刷新/重登计时、第二版预填与变化校验、只读与版本复制', 'PASS', '浏览器虚拟时间跨越120秒，保存与状态读取均使用真实后端。');
+      report('教师进度、第二版预填与变化校验、只读与版本复制', 'PASS', '经过120秒仍等待教师，点击开始第二版后才开放。');
     });
     await t.test('teacher lock, status filters, viewing and real Excel cells', async () => {
       await tp.locator('[data-tab=course]').click(); await tp.locator('[data-tab=design]').click(); await tp.locator('#dpSelect').selectOption(String(planID));
@@ -175,7 +183,7 @@ test('real full acceptance and defect probes', async (t) => {
       await tp.waitForTimeout(900);
     });
     await t.test('student submitting input consistency probe', async () => {
-      await login(sp,'学生乙');await sp.locator('#designPlanSelect').selectOption(String(extraID));await sp.locator('[data-answer]').waitFor();
+      await activate(sp,extraID,'学生乙');await sp.locator('[data-answer]').waitFor();
       await sp.locator('[data-answer]').fill('点击提交前的答案');
       await sp.route(`**/api/v2/design-plans/${extraID}/versions`,async(route)=>{await new Promise((r)=>setTimeout(r,700));await route.fallback();});
       await sp.locator('#designSubmit').click();
@@ -193,7 +201,7 @@ test('real full acceptance and defect probes', async (t) => {
       const cp=await page(false);
       let previous;
       try {
-        await login(cp);await cp.locator('#designPlanSelect').selectOption(String(planID));await cp.locator('#copyFinal').waitFor();
+        await activate(cp,planID);await cp.locator('#copyFinal').waitFor();
         previous=await cp.evaluate(()=>navigator.clipboard.readText());
         await cp.locator('#copyFinal').click();
         const copied=await cp.evaluate(()=>navigator.clipboard.readText());assert.match(copied,/第二版方案/);assert.match(copied,/校园目标是什么？/);assert.match(copied,/每周检查/);
@@ -202,6 +210,80 @@ test('real full acceptance and defect probes', async (t) => {
         const fallback=await cp.evaluate(()=>window.nativeClipboard.readText());assert.match(fallback,/第一版方案/);assert.doesNotMatch(fallback,/每周检查/);
         report('实际剪贴板读写与无 Clipboard API 时的复制兼容','PASS');
       } finally {if(previous!==undefined)await cp.evaluate((text)=>(window.nativeClipboard||navigator.clipboard).writeText(text),previous).catch(()=>{});await cp.close();}
+    });
+    await t.test('teacher opens images without losing draft; explicit generation, edits, final lock and ZIP',async()=>{
+      const getCalls=async()=>(await (await fetch(backend+'/__test/image-calls')).json()).calls;
+      const callsBefore=await getCalls();
+      await activate(sp,planID);await sp.locator('#copyFinal').waitFor();
+      assert.match(await sp.locator('#designContent').innerText(),/等待老师开启图片环节/);
+      assert.equal(await getCalls(),callsBefore);
+      assert.equal(await sp.locator('#imageMessages').count(),0);
+      await tp.locator('#dpSelect').selectOption(String(planID));
+      await tp.locator('#dpTitle').fill('未保存的教师配置');
+      await tp.locator('#dpProgressRefresh').click();await tp.waitForFunction(()=>document.querySelector('#dpAdvance')?.textContent==='开启图片环节');
+      await tp.locator('#dpAdvance').click();await tp.waitForFunction(()=>document.querySelector('#dpProgressText')?.textContent==='当前进度：图片环节');
+      assert.equal(await tp.locator('#dpTitle').inputValue(),'未保存的教师配置');
+      await sp.locator('#imageGenerate').waitFor({state:'visible'});
+      await sp.waitForFunction(()=>document.querySelector('#imageGenerate')?.disabled===false);
+      assert.equal(await getCalls(),callsBefore);
+      await sp.locator('.design-source summary').click();
+      await sp.locator('#imageSourceVersion').selectOption('1');assert.match(await sp.locator('#imageSourceText').innerText(),/分组实施/);
+      await sp.locator('#imageSourceVersion').selectOption('2');assert.match(await sp.locator('#imageSourceText').innerText(),/每周检查/);
+      assert.match(await sp.locator('[data-image-answer]').nth(1).inputValue(), /每周检查/);
+      await sp.locator('#imageGenerate').click();assert.match(await sp.locator('#imageFeedback').innerText(), /请先确认/);
+      assert.equal(await getCalls(),callsBefore);
+      await sp.locator('#imagePlanConfirmed').check();
+      await sp.locator('[data-image-answer]').nth(0).fill('  ');
+      assert.equal(await sp.locator('#imagePlanConfirmed').isChecked(),false);
+      await sp.locator('#imageGenerate').click();assert.match(await sp.locator('#imageFeedback').innerText(), /不能为空/);
+      await sp.locator('[data-image-answer]').nth(0).fill('用于生图的校园标题');
+      await sp.locator('#imagePlanConfirmed').check();
+      await sp.clock.fastForward(6000);
+      assert.equal(await sp.locator('[data-image-answer]').nth(0).inputValue(),'用于生图的校园标题');
+      assert.equal(await sp.locator('#imagePlanConfirmed').isChecked(),true);
+      await sp.screenshot({path:'/private/tmp/design-image-content-confirm.png',fullPage:true});
+      await sp.locator('#imageGenerate').click();
+      await sp.locator('#imageGenerating').waitFor({state:'visible'});
+      await sp.screenshot({path:'/private/tmp/design-image-generating.png',fullPage:true});
+      await sp.waitForFunction(()=>document.querySelectorAll('#imageGallery input').length===1,null,{timeout:12000});
+      const firstImage=await sp.locator('#imageGallery input').first().inputValue();
+      assert.equal(await getCalls(),callsBefore+1);
+      assert.equal(await sp.locator('#imagePlanEditor').isVisible(),false);
+      const imageState=(await call(`/design-plans/${planID}/images?classId=1&studentId=1`)).data;
+      assert.equal(imageState.sourcePlan.answers[0],'用于生图的校园标题');
+      const originalVersions=(await call(`/design-plans/${planID}/student?classId=1&studentId=1`)).data.versions;
+      assert.match(originalVersions[1].answers[0],/绿色校园/);
+      await sp.locator('#imageInstruction').fill('颜色加深一点');await sp.locator('#imageGenerate').click();
+      await sp.waitForFunction(()=>document.querySelectorAll('#imageGallery input').length===2,null,{timeout:12000});
+      assert.equal(await getCalls(),callsBefore+2);
+      await sp.locator('#imageInstruction').fill('模拟失败');await sp.locator('#imageGenerate').click();
+      await sp.waitForFunction(()=>document.querySelector('#imageFeedback')?.textContent.includes('图片生成失败'),null,{timeout:12000});
+      assert.equal(await sp.locator('#imageGallery input').count(),2);assert.equal(await sp.locator('#imageInstruction').inputValue(),'模拟失败');
+      await sp.locator('#imageGallery input').first().check();
+      sp.once('dialog',(d)=>d.accept());await sp.locator('#imageFinalize').click();
+      await sp.waitForFunction(()=>document.querySelector('#imageFinalStatus')?.textContent.includes('已提交最终作品'));
+      assert.equal(await sp.locator('#imageCompose').isVisible(),false);
+      assert.equal(await sp.locator('#imageLatest').getAttribute('data-id'),firstImage);
+      await activate(sp,planID);await sp.locator('#imageLatest').waitFor();
+      assert.equal(await sp.locator('#imageCompose').isVisible(),false);
+      assert.equal(await sp.locator('#imageLatest').getAttribute('data-id'),firstImage);
+      await tp.locator('#dpRefresh').click();await tp.waitForFunction(()=>document.querySelector('#dpRecordMessage')?.textContent==='共 2 名学生');
+      await tp.locator('#dpStatusFilter').selectOption('final');assert.equal(await tp.locator('.design-record').count(),1);
+      await tp.locator('.design-record summary').click();await tp.locator('[data-image-student="1"]').click();
+      await tp.waitForFunction(()=>document.querySelectorAll('[data-image-details="1"] img').length===2);
+      assert.match(await tp.locator('[data-image-details="1"]').innerText(),/最终作品/);
+      await tp.locator('[data-image-details="1"] .design-source summary').click();
+      assert.match(await tp.locator('[data-image-details="1"] .design-source').innerText(),/用于生图的校园标题/);
+      const zipDownload=tp.waitForEvent('download');await tp.locator('#dpImageExport').click();const file=await zipDownload;
+      const zip=XLSX.CFB.read(await readFile(await file.path()),{type:'buffer'});
+      assert.equal(zip.FullPaths.filter((name)=>name.endsWith('.png')).length,2);
+      const index=zip.FullPaths.findIndex((name)=>name.endsWith('.xlsx'));assert.ok(index>=0);
+      const workbook=XLSX.read(zip.FileIndex[index].content);const rows=XLSX.utils.sheet_to_json(workbook.Sheets['图片版本']);
+      assert.equal(rows.length,2);assert.equal(rows.find((r)=>r['是否最终作品']==='是')['图片ID'],firstImage);
+      assert.ok(XLSX.utils.sheet_to_json(workbook.Sheets['对话记录']).some((r)=>r['对话']==='颜色加深一点'));
+      await sp.setViewportSize({width:390,height:844});assert.ok(await sp.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+      await sp.screenshot({path:'/private/tmp/design-images-final-mobile.png',fullPage:true});
+      report('教师开放图片、保持草稿、主动生图、对话修改、最终锁定与全历史ZIP','PASS');
     });
     await t.test('class filter, binding change and historical records',async()=>{
       await tp.locator('#dpSelect').selectOption(String(planID));

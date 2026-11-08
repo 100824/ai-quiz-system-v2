@@ -16,12 +16,15 @@ func initDesignPlans(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS design_plan_classes (plan_id INTEGER NOT NULL REFERENCES design_plans(id), class_id INTEGER NOT NULL REFERENCES classes(id), PRIMARY KEY(plan_id,class_id))`,
 		`CREATE TABLE IF NOT EXISTS design_versions (plan_id INTEGER NOT NULL REFERENCES design_plans(id), student_id INTEGER NOT NULL REFERENCES students(id), class_id INTEGER NOT NULL REFERENCES classes(id), version INTEGER NOT NULL CHECK(version IN (1,2)), title TEXT NOT NULL, questions_json TEXT NOT NULL, answers_json TEXT NOT NULL, submitted_at TEXT NOT NULL, PRIMARY KEY(plan_id,student_id,version))`,
 		`CREATE INDEX IF NOT EXISTS idx_design_versions_class ON design_versions(plan_id,class_id)`,
+		`CREATE TABLE IF NOT EXISTS design_class_progress (plan_id INTEGER NOT NULL REFERENCES design_plans(id), class_id INTEGER NOT NULL REFERENCES classes(id), stage INTEGER NOT NULL DEFAULT 1 CHECK(stage BETWEEN 1 AND 3), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(plan_id,class_id))`,
+		`INSERT OR IGNORE INTO design_class_progress(plan_id,class_id) SELECT plan_id,class_id FROM design_plan_classes`,
+		`CREATE TABLE IF NOT EXISTS design_class_active_plan(class_id INTEGER PRIMARY KEY REFERENCES classes(id),plan_id INTEGER NOT NULL REFERENCES design_plans(id))`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
 	}
-	return nil
+	return initDesignImages(db)
 }
 
 type DesignPlan struct {
@@ -41,11 +44,15 @@ type DesignVersion struct {
 }
 
 type DesignStudentRecord struct {
-	StudentID int             `json:"studentId"`
-	ClassID   int             `json:"classId"`
-	Name      string          `json:"name"`
-	ClassName string          `json:"className"`
-	Versions  []DesignVersion `json:"versions"`
+	StudentID    int             `json:"studentId"`
+	ClassID      int             `json:"classId"`
+	Name         string          `json:"name"`
+	ClassName    string          `json:"className"`
+	Versions     []DesignVersion `json:"versions"`
+	Stage        int             `json:"stage"`
+	ImageCount   int             `json:"imageCount"`
+	FinalImageID string          `json:"finalImageId"`
+	FinalizedAt  string          `json:"finalizedAt"`
 }
 
 type designQuery interface {
@@ -196,6 +203,9 @@ func (r *Repository) SaveDesignPlan(p DesignPlan) (*DesignPlan, error) {
 		if _, err = tx.Exec(`INSERT OR IGNORE INTO design_plan_classes(plan_id,class_id) VALUES(?,?)`, p.ID, id); err != nil {
 			return nil, err
 		}
+		if _, err = tx.Exec(`INSERT OR IGNORE INTO design_class_progress(plan_id,class_id) VALUES(?,?)`, p.ID, id); err != nil {
+			return nil, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
@@ -212,7 +222,34 @@ func validateDesignStudent(q designQuery, planID, classID, studentID int) error 
 	if !ok {
 		return fmt.Errorf("学生不属于该班级，或该班级未绑定此方案")
 	}
+	var active bool
+	if err = q.QueryRow(`SELECT EXISTS(SELECT 1 FROM design_class_active_plan WHERE class_id=? AND plan_id=?)`, classID, planID).Scan(&active); err != nil {
+		return err
+	}
+	if !active {
+		return fmt.Errorf("老师已切换当前方案，请重新进入")
+	}
 	return nil
+}
+
+func (r *Repository) SetActiveDesignPlan(classID, planID int) error {
+	_, err := r.DesignProgress(planID, classID)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(`INSERT INTO design_class_active_plan(class_id,plan_id) VALUES(?,?) ON CONFLICT(class_id) DO UPDATE SET plan_id=excluded.plan_id`, classID, planID)
+	return err
+}
+func (r *Repository) ActiveDesignPlan(classID int) (*DesignPlan, error) {
+	var id int
+	err := r.db.QueryRow(`SELECT a.plan_id FROM design_class_active_plan a JOIN design_plan_classes b ON b.class_id=a.class_id AND b.plan_id=a.plan_id JOIN classes c ON c.id=a.class_id WHERE a.class_id=? AND c.deleted_at IS NULL`, classID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return loadDesignPlan(r.db, id)
 }
 
 func loadDesignVersions(q designQuery, planID, studentID int) ([]DesignVersion, error) {
@@ -274,6 +311,15 @@ func (r *Repository) SubmitDesignVersion(planID, classID, studentID, version int
 	if version != len(versions)+1 {
 		return fmt.Errorf("版本已提交或提交顺序有误，请重新读取方案")
 	}
+	if version == 2 {
+		stage, err := designStage(tx, planID, classID)
+		if err != nil {
+			return err
+		}
+		if stage < 2 {
+			return fmt.Errorf("等待老师开始第二版")
+		}
+	}
 	questions := p.Questions
 	title := p.Title
 	if version == 2 {
@@ -333,6 +379,60 @@ func (r *Repository) DesignRecords(planID, classID int) ([]DesignStudentRecord, 
 		if err != nil {
 			return nil, err
 		}
+		items[i].Stage, err = designStage(r.db, planID, items[i].ClassID)
+		if err != nil {
+			return nil, err
+		}
+		err = r.db.QueryRow(`SELECT COALESCE((SELECT COUNT(*) FROM design_images i JOIN design_image_sessions s ON s.id=i.session_id WHERE s.plan_id=? AND s.student_id=?),0),COALESCE((SELECT final_image_id FROM design_image_sessions WHERE plan_id=? AND student_id=?),''),COALESCE((SELECT finalized_at FROM design_image_sessions WHERE plan_id=? AND student_id=?),'')`, planID, items[i].StudentID, planID, items[i].StudentID, planID, items[i].StudentID).Scan(&items[i].ImageCount, &items[i].FinalImageID, &items[i].FinalizedAt)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return items, nil
+}
+
+func designStage(q designQuery, planID, classID int) (int, error) {
+	var stage int
+	err := q.QueryRow(`SELECT COALESCE((SELECT stage FROM design_class_progress WHERE plan_id=? AND class_id=?),1)`, planID, classID).Scan(&stage)
+	return stage, err
+}
+
+func (r *Repository) DesignProgress(planID, classID int) (int, error) {
+	var ok bool
+	if err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM design_plan_classes b JOIN classes c ON c.id=b.class_id WHERE b.plan_id=? AND b.class_id=? AND c.deleted_at IS NULL)`, planID, classID).Scan(&ok); err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, fmt.Errorf("该班级未绑定此方案")
+	}
+	return designStage(r.db, planID, classID)
+}
+
+func (r *Repository) AdvanceDesignProgress(planID, classID, next int) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO design_class_progress(plan_id,class_id) SELECT plan_id,class_id FROM design_plan_classes WHERE plan_id=? AND class_id=?`, planID, classID); err != nil {
+		return err
+	}
+	var bound bool
+	if err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM design_plan_classes b JOIN classes c ON c.id=b.class_id WHERE b.plan_id=? AND b.class_id=? AND c.deleted_at IS NULL)`, planID, classID).Scan(&bound); err != nil {
+		return err
+	}
+	if !bound {
+		return fmt.Errorf("该班级未绑定此方案")
+	}
+	stage, err := designStage(tx, planID, classID)
+	if err != nil {
+		return err
+	}
+	if next != stage+1 || next > 3 {
+		return fmt.Errorf("只能依次向后开放下一阶段")
+	}
+	if _, err = tx.Exec(`UPDATE design_class_progress SET stage=?,updated_at=CURRENT_TIMESTAMP WHERE plan_id=? AND class_id=?`, next, planID, classID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

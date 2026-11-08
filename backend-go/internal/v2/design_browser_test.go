@@ -1,11 +1,16 @@
 package v2
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -27,7 +32,36 @@ func TestDesignBrowserServer(t *testing.T) {
 		}
 	}
 	mux := http.NewServeMux()
-	NewHandler(repo).Register(mux)
+	t.Setenv("ARK_API_KEY", "browser-fixture-key")
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body struct {
+			Prompt string `json:"prompt"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		time.Sleep(120 * time.Millisecond)
+		if strings.Contains(body.Prompt, "模拟失败") {
+			http.Error(w, "fixture failure", 503)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(designTestPNG(t))}}})
+	}))
+	defer upstream.Close()
+	service, err := newDesignImageService(repo, t.TempDir(), upstream.URL, upstream.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	h := NewHandler(repo)
+	h.designImages = service
+	h.Register(mux)
+	mux.HandleFunc("GET /__test/image-calls", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]int32{"calls": calls.Load()})
+	})
 	stopped := make(chan struct{})
 	var once sync.Once
 	mux.HandleFunc("POST /__test/stop", func(w http.ResponseWriter, r *http.Request) {

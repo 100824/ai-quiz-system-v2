@@ -10,6 +10,11 @@ import (
 )
 
 func (h *Handler) registerDesignPlans(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v2/classes/{id}/design-active-plan", h.handleActiveDesignPlan)
+	mux.HandleFunc("PUT /api/v2/classes/{id}/design-active-plan", h.handleActiveDesignPlan)
+	h.registerDesignImages(mux)
+	mux.HandleFunc("GET /api/v2/design-plans/{id}/classes/{classId}/progress", h.handleDesignProgress)
+	mux.HandleFunc("PUT /api/v2/design-plans/{id}/classes/{classId}/progress", h.handleDesignProgress)
 	mux.HandleFunc("GET /api/v2/design-plans", h.handleDesignPlans)
 	mux.HandleFunc("POST /api/v2/design-plans", h.handleSaveDesignPlan)
 	mux.HandleFunc("PUT /api/v2/design-plans/{id}", h.handleSaveDesignPlan)
@@ -18,6 +23,40 @@ func (h *Handler) registerDesignPlans(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/design-plans/{id}/versions", h.handleSubmitDesignVersion)
 	mux.HandleFunc("GET /api/v2/design-plans/{id}/records", h.handleDesignRecords)
 	mux.HandleFunc("GET /api/v2/design-plans/{id}/export", h.handleDesignExport)
+}
+
+func (h *Handler) handleActiveDesignPlan(w http.ResponseWriter, r *http.Request) {
+	cid, err := designID(r)
+	if err != nil {
+		h.designResponse(w, nil, err)
+		return
+	}
+	if r.Method == http.MethodPut {
+		var body struct {
+			PlanID int `json:"planId"`
+		}
+		err = json.NewDecoder(r.Body).Decode(&body)
+		if err == nil {
+			err = h.repo.SetActiveDesignPlan(cid, body.PlanID)
+		}
+		if err != nil {
+			h.designResponse(w, nil, err)
+			return
+		}
+	}
+	if r.URL.Query().Get("studentId") != "" {
+		sid, e := designQueryID(r, "studentId", false)
+		var ok bool
+		if e == nil {
+			e = h.repo.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM students WHERE id=? AND class_id=? AND deleted_at IS NULL)`, sid, cid).Scan(&ok)
+		}
+		if e != nil || !ok {
+			h.designResponse(w, nil, fmt.Errorf("学生不在班级名单中"))
+			return
+		}
+	}
+	p, err := h.repo.ActiveDesignPlan(cid)
+	h.designResponse(w, map[string]any{"plan": p}, err)
 }
 
 func (h *Handler) designResponse(w http.ResponseWriter, data any, err error) {
@@ -132,7 +171,39 @@ func (h *Handler) handleStudentDesignPlan(w http.ResponseWriter, r *http.Request
 		return
 	}
 	vs, err := loadDesignVersions(h.repo.db, id, sid)
-	h.designResponse(w, map[string]any{"plan": p, "versions": vs}, err)
+	if err != nil {
+		h.designResponse(w, nil, err)
+		return
+	}
+	stage, err := designStage(h.repo.db, id, cid)
+	h.designResponse(w, map[string]any{"plan": p, "versions": vs, "stage": stage, "permissions": map[string]bool{"canSubmitFirst": len(vs) == 0, "canSubmitSecond": len(vs) == 1 && stage >= 2, "canEnterImages": len(vs) == 2 && stage >= 3}}, err)
+}
+
+func (h *Handler) handleDesignProgress(w http.ResponseWriter, r *http.Request) {
+	id, err := designID(r)
+	if err != nil {
+		h.designResponse(w, nil, err)
+		return
+	}
+	cid, err := pathInt(r, "classId")
+	if err != nil || cid <= 0 {
+		h.designResponse(w, nil, fmt.Errorf("班级ID无效"))
+		return
+	}
+	if r.Method == http.MethodPut {
+		var body struct {
+			Stage int `json:"stage"`
+		}
+		if err = json.NewDecoder(r.Body).Decode(&body); err == nil {
+			err = h.repo.AdvanceDesignProgress(id, cid, body.Stage)
+		}
+		if err != nil {
+			h.designResponse(w, nil, err)
+			return
+		}
+	}
+	stage, err := h.repo.DesignProgress(id, cid)
+	h.designResponse(w, map[string]any{"stage": stage}, err)
 }
 
 func (h *Handler) handleSubmitDesignVersion(w http.ResponseWriter, r *http.Request) {

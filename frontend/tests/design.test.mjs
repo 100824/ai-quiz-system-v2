@@ -27,6 +27,8 @@ after(async () => { await browser?.close(); await new Promise((done) => server ?
 async function fixture(page) {
   const plan = { id: 1, title: '校园设计', questions: ['目标是什么？', '如何实现？'], classIds: [1], locked: false };
   const versions = [];
+  let stage = 1;
+  let activePlan = plan;
   let failedSubmit = false;
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (text) => { window.copiedPlan = text; } } });
@@ -37,8 +39,11 @@ async function fixture(page) {
     if (path === '/api/v2/classes') data = { classes: [{ id: 1, name: '五年（1）班' }] };
     else if (path === '/api/v2/default-class') data = { defaultClassId: 1 };
     else if (path.endsWith('/students')) data = { students: [{ id: 7, name: '测试学生', classId: 1 }] };
+    else if (path.endsWith('/design-active-plan')) data = {plan:activePlan};
     else if (path === '/api/v2/classes/1/design-plans') data = { plans: [{ id: 1, title: plan.title, versionCount: versions.length }] };
-    else if (path.endsWith('/student')) data = { plan, versions };
+    else if (path.endsWith('/student')) data = { plan, versions, stage };
+    else if (path.endsWith('/progress')) { if (request.method() === 'PUT') stage = request.postDataJSON().stage; data = {stage}; }
+    else if (path.endsWith('/images')) data = {images:[],messages:[],imageCount:0,finalImageId:'',finalizedAt:'',activeJob:null,latestImage:null,imagesHasMore:false,messagesHasMore:false};
     else if (path.endsWith('/versions')) {
       if (failedSubmit) { failedSubmit = false; await route.fulfill({ status: 500, json: { success: false, error: '模拟网络失败' } }); return; }
       const body = request.postDataJSON();
@@ -52,7 +57,7 @@ async function fixture(page) {
     else throw new Error(`Unexpected API: ${request.method()} ${path}`);
     await route.fulfill({ json: { success: true, data } });
   });
-  return { plan, versions, failNext: () => { failedSubmit = true; } };
+  return { plan, versions, setActive:(next)=>{activePlan=next}, setStage: (next) => { stage = next; }, failNext: () => { failedSubmit = true; } };
 }
 
 async function login(page) {
@@ -61,7 +66,7 @@ async function login(page) {
   await page.locator('#designWorkspace').waitFor({ state: 'visible' });
 }
 
-test('student: validation, failure retention, persistent timer, immutable versions and copy', async () => {
+test('student: validation, failure retention, teacher-controlled stage, immutable versions and copy', async () => {
   const page = await browser.newPage();
   const runtimeErrors = [];
   page.on('pageerror', (error) => runtimeErrors.push(error.message));
@@ -100,6 +105,8 @@ test('student: validation, failure retention, persistent timer, immutable versio
     assert.equal(f.versions[0].submittedAt, timestamp);
     assert.equal(await page.locator('[data-answer]').count(), 0);
     await page.clock.install(); await page.clock.fastForward(121000);
+    assert.equal(await page.locator('[data-answer]').count(), 0);
+    f.setStage(2); await page.clock.fastForward(3000);
     await page.locator('[data-answer]').first().waitFor();
     assert.equal(await page.locator('[data-answer]').first().inputValue(), '校园环保');
     await page.locator('[data-answer]').first().fill('校园 环保');
@@ -130,7 +137,7 @@ test('teacher: question order, bindings, lock, status filtering and export actio
     await page.evaluate(async () => {
       document.querySelector('#mainContainer').classList.remove('hidden'); document.querySelector('#passwordOverlay').remove();
       document.querySelectorAll('.tab-content').forEach((n) => n.classList.remove('active')); document.querySelector('#design').classList.add('active');
-      const module = await import('./v2/js/design/teacher.js?v=2026110203'); await module.loadDesignTeacher();
+      const module = await import('./v2/js/design/teacher.js?v=2026110801'); await module.loadDesignTeacher();
     });
     await page.locator('[data-dp-down="0"]').click();
     assert.equal(await page.locator('[data-dp-question="0"]').inputValue(), '如何实现？');
@@ -142,7 +149,7 @@ test('teacher: question order, bindings, lock, status filtering and export actio
     assert.deepEqual(f.plan.questions, ['如何实现？', '目标是什么？']); assert.deepEqual(f.plan.classIds, [1]);
     f.plan.locked = true;
     f.versions.push({ version: 1, title: f.plan.title, questions: f.plan.questions, answers: ['实现办法', '计划目标'], submittedAt: new Date().toISOString() });
-    await page.evaluate(async () => { await (await import('./v2/js/design/teacher.js?v=2026110203')).loadDesignTeacher(); });
+    await page.evaluate(async () => { await (await import('./v2/js/design/teacher.js?v=2026110801')).loadDesignTeacher(); });
     assert.equal(await page.locator('#dpAdd').count(), 0);
     assert.equal(await page.locator('[data-dp-question="0"]').getAttribute('readonly'), '');
     await page.locator('#dpStatusFilter').selectOption('2'); assert.equal(await page.locator('.design-record').count(), 0);
@@ -153,23 +160,23 @@ test('teacher: question order, bindings, lock, status filtering and export actio
   } finally { await page.close(); }
 });
 
-test('student: multiple bound plans require selection and remain separate; empty class is explained', async () => {
+test('student: teacher selects active plan; no student selector; updates arrive automatically', async () => {
   const page = await browser.newPage();
   try {
-    await fixture(page);
-    await page.route('**/api/v2/classes/1/design-plans?*', (route) => route.fulfill({ json: { success: true, data: { plans: [{id:1,title:'校园设计',versionCount:0},{id:2,title:'另一个方案',versionCount:0}] } } }));
+    const f=await fixture(page); f.setActive(null);
     await page.route('**/api/v2/design-plans/2/student?*', (route) => route.fulfill({ json: { success: true, data: { plan: {id:2,title:'另一个方案',questions:['独立的问题']}, versions: [] } } }));
     await page.goto(`${origin}/design.html`); await login(page);
     assert.equal(await page.locator('[data-answer]').count(), 0);
-    await page.locator('#designPlanSelect').selectOption('2'); await page.locator('[data-answer]').waitFor();
+    assert.equal(await page.locator('#designPlanSelect').count(),0);
+    await page.clock.install();f.setActive({id:2,title:'另一个方案'});await page.clock.fastForward(3000);await page.locator('[data-answer]').waitFor();
     assert.match(await page.locator('#designContent').innerText(), /独立的问题/);
-    await page.locator('#designPlanSelect').selectOption('1'); await page.locator('[data-answer]').nth(1).waitFor();
+    f.setActive(f.plan);await page.clock.fastForward(3000);await page.locator('[data-answer]').nth(1).waitFor();
     assert.doesNotMatch(await page.locator('#designContent').innerText(), /独立的问题/);
     await page.setViewportSize({ width: 390, height: 844 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'student page overflows mobile viewport');
-    await page.route('**/api/v2/classes/1/design-plans?*', (route) => route.fulfill({ json: { success: true, data: { plans: [] } } }));
+    f.setActive(null);
     await page.reload(); await login(page);
-    assert.match(await page.locator('#designContent').innerText(), /尚未绑定方案/);
+    assert.match(await page.locator('#designContent').innerText(), /等待老师指定/);
   } finally { await page.close(); }
 });
 
@@ -200,7 +207,7 @@ test('visual states: desktop login, writing, AI wait, second draft and mobile la
     await page.waitForFunction(() => document.querySelector('#designNames').options.length > 0);
     await page.screenshot({ path: '/private/tmp/design-login-desktop.png', fullPage: true });
     await login(page);
-    assert.equal(await page.locator('.design-stepper [aria-current="step"]').innerText(), '1\n填写第一版');
+    assert.equal(await page.locator('.design-stepper [aria-current="step"]').innerText(), '1\n第一版方案');
     await page.locator('[data-answer]').nth(0).fill('让校园更环保，让同学们养成垃圾分类的好习惯。');
     await page.locator('[data-answer]').nth(1).fill('分组设计分类标识，安排同学每周检查实施效果。');
     await page.screenshot({ path: '/private/tmp/design-writing-desktop.png', fullPage: true });
@@ -208,10 +215,14 @@ test('visual states: desktop login, writing, AI wait, second draft and mobile la
     assert.doesNotMatch(await page.locator('#designContent').innerText(), /AI 优化中|第一版已保存|第一版会完整保留/);
     assert.equal(await page.locator('.design-state-badge').count(), 0);
     await page.screenshot({ path: '/private/tmp/design-wait-desktop.png', fullPage: true });
-    assert.equal(await page.locator('.design-stepper [aria-current="step"]').innerText(), '2\n与 AI 一起优化');
-    f.versions[0].submittedAt = new Date(Date.now() - 121000).toISOString();
+    assert.match(await page.locator('#designContent').innerText(), /等待老师开始第二版/);
+    f.setStage(2);
     await page.reload(); await login(page); await page.locator('[data-answer]').nth(1).waitFor();
-    assert.equal(await page.locator('.design-stepper [aria-current="step"]').innerText(), '3\n提交第二版');
+    assert.equal(await page.locator('.design-stepper [aria-current="step"]').innerText(), '2\n第二版方案');
+    assert.match(await page.locator('#designRevisionBanner').innerText(),/已填入你的第一版内容/);
+    assert.equal(await page.locator('.design-revision-field-label').count(),2);
+    await page.locator('.design-original-answer summary').first().click();
+    assert.match(await page.locator('.design-original-answer').first().innerText(),/让校园更环保/);
     await page.screenshot({ path: '/private/tmp/design-second-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
@@ -220,5 +231,31 @@ test('visual states: desktop login, writing, AI wait, second draft and mobile la
     await page.locator('#designEnter').waitFor();
     const position = await page.locator('#designEnter').boundingBox(); assert.ok(position.y < 844, 'mobile login action should be visible without scrolling');
     await page.screenshot({ path: '/private/tmp/design-login-mobile.png', fullPage: true });
+  } finally { await page.close(); }
+});
+
+test('teacher opening later stages preserves unfinished first and second drafts', async () => {
+  const page = await browser.newPage();
+  try {
+    const f = await fixture(page); await page.goto(`${origin}/design.html`); await login(page);
+    await page.clock.install();
+    await page.locator('[data-answer]').nth(0).fill('未提交的第一版目标'); await page.locator('[data-answer]').nth(1).fill('第一版步骤');
+    const firstEditor = await page.locator('[data-answer]').first().elementHandle();
+    f.setStage(2);
+    const secondStage = page.waitForResponse((r) => r.url().includes('/progress'));
+    await page.clock.fastForward(3000); await secondStage;
+    assert.ok(await firstEditor.evaluate((node) => node.isConnected));
+    assert.equal(await page.locator('[data-answer]').first().inputValue(),'未提交的第一版目标');
+    await page.locator('#designSubmit').click();await page.locator('#designSubmit').waitFor();
+    await page.waitForFunction(()=>document.querySelector('#designSubmit')?.textContent.includes('第二版'));
+    await page.locator('[data-answer]').first().fill('尚未提交的第二版优化目标');
+    const secondEditor = await page.locator('[data-answer]').first().elementHandle();
+    f.setStage(3);
+    const imageStage = page.waitForResponse((r)=>r.url().includes('/progress'));
+    await page.clock.fastForward(3000); await imageStage;
+    assert.ok(await secondEditor.evaluate((node)=>node.isConnected));
+    assert.equal(await page.locator('[data-answer]').first().inputValue(),'尚未提交的第二版优化目标');
+    await page.locator('#designSubmit').click(); await page.locator('#imageGenerate').waitFor();
+    assert.equal(f.versions.length,2);
   } finally { await page.close(); }
 });

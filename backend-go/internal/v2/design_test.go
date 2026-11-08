@@ -26,6 +26,9 @@ func TestDesignPlanLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err = repo.SetActiveDesignPlan(1, p.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = repo.SaveDesignPlan(DesignPlan{Title: "空题", Questions: []string{" "}}); err == nil {
 		t.Fatal("accepted blank question")
 	}
@@ -58,10 +61,16 @@ func TestDesignPlanLifecycle(t *testing.T) {
 	if _, err = repo.SaveDesignPlan(*p); err != nil {
 		t.Fatal(err)
 	}
+	if err = repo.SubmitDesignVersion(p.ID, 1, 1, 2, []string{"改进目标", "原 步骤"}); err == nil {
+		t.Fatal("second version opened without teacher")
+	}
+	if err = repo.AdvanceDesignProgress(p.ID, 1, 2); err != nil {
+		t.Fatal(err)
+	}
 	if err = repo.SubmitDesignVersion(p.ID, 1, 1, 2, []string{"目\n标", "原\t步骤"}); err == nil {
 		t.Fatal("accepted whitespace only change")
 	}
-	// The backend intentionally permits immediate second submission: the wait is UI-only.
+	// The teacher, not elapsed time, permits the second submission.
 	if err = repo.SubmitDesignVersion(p.ID, 1, 1, 2, []string{"优化后的目标", "原 步骤"}); err != nil {
 		t.Fatal(err)
 	}

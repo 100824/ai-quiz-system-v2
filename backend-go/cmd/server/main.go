@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -77,6 +78,10 @@ func main() {
 
 	v2Repo := v2.NewRepository(v2DB)
 	v2Handler := v2.NewHandler(v2Repo)
+	if err := v2Handler.StartDesignImages(context.Background(), filepath.Join(dataDir, "design-images")); err != nil {
+		log.Fatalf("init design image workers: %v", err)
+	}
+	defer v2Handler.StopDesignImages()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", legacyHandler.HandleHealth)
