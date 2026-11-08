@@ -701,8 +701,18 @@ func (h *Handler) streamProviderOutput(ctx context.Context, provider aiProvider,
 	reasoningBytes := 0
 	scanner := bufio.NewScanner(stream)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
-	for scanner.Scan() {
-		line := strings.TrimSuffix(scanner.Text(), "\r")
+	var lines interface {
+		Scan() bool
+		Text() string
+		Err() error
+	} = scanner
+	// HTML uses the provider response as returned, without an application byte
+	// limit or a hidden Scanner per-event limit. Existing chat behavior is unchanged.
+	if maxBytes < 0 {
+		lines = &aiHTMLLines{reader: bufio.NewReader(stream)}
+	}
+	for lines.Scan() {
+		line := strings.TrimSuffix(strings.TrimSuffix(lines.Text(), "\n"), "\r")
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
@@ -751,7 +761,7 @@ func (h *Handler) streamProviderOutput(ctx context.Context, provider aiProvider,
 				continue
 			}
 			if maxBytes > 0 && answer.Len()+len(delta) > maxBytes {
-				return "", designArtifactError("生成网页超过512KiB，请简化页面要求后重试")
+				return "", designArtifactError("模型返回内容超过请求限制")
 			}
 			answer.WriteString(delta)
 			if onDelta != nil {
@@ -764,7 +774,7 @@ func (h *Handler) streamProviderOutput(ctx context.Context, provider aiProvider,
 	if limited != nil && limited.N <= 0 {
 		return "", designArtifactError("模型响应过大，请简化要求后重试")
 	}
-	if err := scanner.Err(); err != nil {
+	if err := lines.Err(); err != nil {
 		return "", fmt.Errorf("读取 %s 流式响应失败：%w", provider.ID, err)
 	}
 	if !finished {
@@ -775,6 +785,27 @@ func (h *Handler) streamProviderOutput(ctx context.Context, provider aiProvider,
 		return "", fmt.Errorf("%s 返回空回答", provider.ID)
 	}
 	return answerText, nil
+}
+
+type aiHTMLLines struct {
+	reader *bufio.Reader
+	line   string
+	err    error
+}
+
+func (s *aiHTMLLines) Scan() bool {
+	if s.err != nil {
+		return false
+	}
+	s.line, s.err = s.reader.ReadString('\n')
+	return len(s.line) > 0
+}
+func (s *aiHTMLLines) Text() string { return s.line }
+func (s *aiHTMLLines) Err() error {
+	if s.err == io.EOF {
+		return nil
+	}
+	return s.err
 }
 
 func sanitizeAIChatMessages(messages []AIChatMessage) []AIChatMessage {

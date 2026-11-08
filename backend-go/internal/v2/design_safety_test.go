@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -136,15 +137,12 @@ func TestDesignImageResponseLimitsAndCorruption(t *testing.T) {
 
 func TestDesignHTMLComplexityAndUnsafeOutput(t *testing.T) {
 	for _, body := range []string{
-		strings.Replace(designHTMLFixture, "</body>", strings.Repeat("<div>", 140)+strings.Repeat("</div>", 140)+"</body>", 1),
-		strings.Replace(designHTMLFixture, "</body>", strings.Repeat("<span>x</span>", 6000)+"</body>", 1),
 		strings.Replace(designHTMLFixture, "let n=0;", "while(true){}", 1),
 		strings.Replace(designHTMLFixture, "let n=0;", "for(;;){}", 1),
 		strings.Replace(designHTMLFixture, "let n=0;", "eval('x');", 1),
 		strings.Replace(designHTMLFixture, "let n=0;", "window.open('x');", 1),
-		strings.Replace(designHTMLFixture, "let n=0;", strings.Repeat(" ", 256<<10), 1),
 		strings.Replace(designHTMLFixture, "</body>", "\x00</body>", 1),
-		strings.Repeat("x", designHTMLLimit+1),
+		strings.Repeat("x", designHTMLPromptTarget+1),
 	} {
 		if _, err := validateDesignHTML(body); err == nil {
 			t.Fatal("complex or unsafe HTML accepted")
@@ -155,6 +153,15 @@ func TestDesignHTMLComplexityAndUnsafeOutput(t *testing.T) {
 	}
 	if _, err := validateDesignHTML(strings.Replace(designHTMLFixture, "()=>", "function()", 1)); err != nil {
 		t.Fatal("ordinary anonymous event handler rejected", err)
+	}
+	for _, body := range []string{
+		strings.Replace(designHTMLFixture, "</body>", strings.Repeat("<div>", 140)+strings.Repeat("</div>", 140)+"</body>", 1),
+		strings.Replace(designHTMLFixture, "</body>", strings.Repeat("<span>x</span>", 6000)+"</body>", 1),
+		strings.Replace(designHTMLFixture, "let n=0;", strings.Repeat(" ", 300<<10)+"let n=0;", 1),
+	} {
+		if _, err := validateDesignHTML(body); err != nil {
+			t.Fatal("size/complexity soft guidance became hard rejection", err)
+		}
 	}
 }
 
@@ -314,10 +321,13 @@ func TestDesignArtifactReadAndStreamCancellation(t *testing.T) {
 	body.Close()
 	huge := filepath.Join(t.TempDir(), "huge.html")
 	f, _ := os.Create(huge)
-	f.Truncate(designHTMLLimit + 1)
+	f.Truncate(designHTMLPromptTarget + 1)
 	f.Close()
-	if _, err := readDesignArtifact(huge, designHTMLLimit); err == nil {
+	if _, err := readDesignArtifact(huge, designHTMLPromptTarget); err == nil {
 		t.Fatal("oversize disk file loaded")
+	}
+	if data, err := readDesignArtifact(huge, 0); err != nil || len(data) != designHTMLPromptTarget+1 {
+		t.Fatal("unlimited HTML file read was capped", err)
 	}
 	if err := checkDesignStorage(t.TempDir(), ^uint64(0)); err == nil {
 		t.Fatal("disk capacity check bypassed")
@@ -329,7 +339,7 @@ func TestDesignHTMLStreamSafetyLimits(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch r.URL.Path {
 		case "/content":
-			writeDesignHTMLStream(w, strings.Repeat("x", designHTMLLimit+1))
+			writeDesignHTMLStream(w, strings.Repeat("x", designHTMLPromptTarget+1))
 		case "/reasoning":
 			b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"reasoning_content": strings.Repeat("x", (256<<10)+1)}}}})
 			fmt.Fprintf(w, "data: %s\n\n", b)
@@ -351,23 +361,42 @@ func TestDesignHTMLStreamSafetyLimits(t *testing.T) {
 	h := NewHandler(nil)
 	for _, path := range []string{"/content", "/reasoning", "/wire", "/truncated", "/length"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := h.streamProviderOutput(ctx, aiProvider{ID: "deepseek", Model: "fixture", url: upstream.URL + path, key: "fixture"}, "fixture", nil, nil, func(string) error { return nil }, 16384, designHTMLLimit)
+		_, err := h.streamProviderOutput(ctx, aiProvider{ID: "deepseek", Model: "fixture", url: upstream.URL + path, key: "fixture"}, "fixture", nil, nil, func(string) error { return nil }, 16384, -1)
 		cancel()
-		if err == nil {
-			t.Fatal("unsafe response accepted", path)
+		wantFailure := path == "/truncated" || path == "/length"
+		if (err != nil) != wantFailure {
+			t.Fatalf("unexpected unlimited response handling %s: %v", path, err)
 		}
 	}
 }
 
-func TestDesignOversizeHTMLKeepsPreviousWork(t *testing.T) {
+func TestDesignHTMLSizeIsPromptOnlyAndInvalidOutputKeepsWork(t *testing.T) {
 	_, repo, p := setupDesignImages(t)
 	p.OutputType = "html"
 	repo.SaveDesignPlan(*p)
 	completeDesignPlans(t, repo, p.ID)
 	t.Setenv("DEEPSEEK_KEY", "fixture")
 	t.Setenv("GLM_KEY", "fixture")
+	large := strings.Replace(designHTMLFixture, "绿色校园", strings.Repeat("学", designHTMLPromptTarget/3+512), 1)
+	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeDesignHTMLStream(w, strings.Repeat("x", designHTMLLimit+1))
+		var request struct {
+			Messages []AIChatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		if !strings.Contains(request.Messages[0].Content, "1MiB") {
+			t.Error("soft prompt target missing")
+		}
+		if calls.Add(1) == 1 {
+			writeDesignHTMLStream(w, large)
+		} else {
+			if len(request.Messages[1].Content) <= designHTMLPromptTarget {
+				t.Error("large parent source was truncated")
+			}
+			writeDesignHTMLStream(w, "<html>incomplete")
+		}
 	}))
 	defer upstream.Close()
 	svc, _ := newDesignImageService(repo, t.TempDir(), "", upstream.Client())
@@ -376,6 +405,7 @@ func TestDesignOversizeHTMLKeepsPreviousWork(t *testing.T) {
 	h.deepSeekURL = upstream.URL
 	h.glmURL = upstream.URL
 	svc.htmlHandler = h
+	h.designImages = svc
 	repo.EnqueueDesignHTML(p.ID, 1, 1, "first", "")
 	first, _ := repo.ClaimDesignHTMLJob()
 	v := &DesignHTMLVersion{ID: designRandomID(), Model: "fixture", SizeBytes: len(designHTMLFixture)}
@@ -392,12 +422,46 @@ func TestDesignOversizeHTMLKeepsPreviousWork(t *testing.T) {
 	job, _ := repo.ClaimDesignHTMLJob()
 	svc.runHTML(context.Background(), job)
 	state, err := repo.DesignHTMLState(p.ID, 1, 0, 0)
-	if err != nil || state.ActiveJob != nil || state.VersionCount != 1 || state.LatestVersion.ID != v.ID || state.LastJob.Status != "failed" || !strings.Contains(state.LastJob.Error, "512KiB") {
-		t.Fatalf("oversize result replaced previous work: %+v %v", state, err)
+	if err != nil || state.VersionCount != 2 || state.LatestVersion.SizeBytes <= designHTMLPromptTarget || state.LastJob.Status != "succeeded" {
+		t.Fatalf("valid HTML above soft size target rejected: %+v %v", state, err)
+	}
+	latest := state.LatestVersion
+	mux := http.NewServeMux()
+	h.Register(mux)
+	for _, suffix := range []string{"", "?download=1"} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", fmt.Sprintf("/api/v2/design-plans/%d/records/1/html-versions/%s%s", p.ID, latest.ID, suffix), nil))
+		if w.Code != 200 {
+			t.Fatal("large HTML read/download failed", w.Code)
+		}
+		if suffix != "" {
+			if w.Body.Len() != latest.SizeBytes {
+				t.Fatal("large HTML download truncated")
+			}
+		} else {
+			var response struct {
+				Data struct {
+					HTML string `json:"html"`
+				} `json:"data"`
+			}
+			json.Unmarshal(w.Body.Bytes(), &response)
+			if len(response.Data.HTML) != latest.SizeBytes {
+				t.Fatal("large HTML preview truncated")
+			}
+		}
+	}
+	if _, err := repo.EnqueueDesignHTML(p.ID, 1, 1, "invalid", "继续修改"); err != nil {
+		t.Fatal(err)
+	}
+	job, _ = repo.ClaimDesignHTMLJob()
+	svc.runHTML(context.Background(), job)
+	state, err = repo.DesignHTMLState(p.ID, 1, 0, 0)
+	if err != nil || state.VersionCount != 2 || state.LatestVersion.ID != latest.ID || state.LastJob.Status != "failed" {
+		t.Fatal("invalid output replaced previous work", err)
 	}
 	files, _ := os.ReadDir(svc.htmlDir)
-	if len(files) != 1 {
-		t.Fatal("oversize output left orphan files")
+	if len(files) != 2 {
+		t.Fatal("invalid output left orphan files")
 	}
 }
 

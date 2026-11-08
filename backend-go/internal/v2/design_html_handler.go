@@ -155,15 +155,20 @@ func (h *Handler) serveDesignHTML(w http.ResponseWriter, r *http.Request, p, s i
 		return
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, designHTMLLimit+1))
-	if err != nil || len(data) > designHTMLLimit {
-		http.Error(w, "网页文件不可读取", 500)
-		return
-	}
 	if r.URL.Query().Get("download") == "1" {
+		stat, err := f.Stat()
+		if err != nil || !stat.Mode().IsRegular() {
+			http.Error(w, "网页文件不可读取", 500)
+			return
+		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="design-v%d.html"`, i.Version))
-		_, _ = w.Write(data)
+		http.ServeContent(w, r, fmt.Sprintf("design-v%d.html", i.Version), stat.ModTime(), f)
+		return
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, "网页文件不可读取", 500)
 		return
 	}
 	h.designResponse(w, map[string]any{"version": i, "html": string(data)}, nil)

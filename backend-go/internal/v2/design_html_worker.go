@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,15 +17,16 @@ import (
 	"golang.org/x/net/html"
 )
 
-const designHTMLLimit = 512 << 10
+const designHTMLPromptTarget = 1 << 20 // Prompt guidance only; never a response/file rejection threshold.
 const designHTMLReasoningLimit = 12000
 const designHTMLPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'"
 const designHTMLSystem = `你为小学学生生成可直接使用的离线交互网页。若提供可展示的生成思路(reasoning_content)，请用面向小学生的简短中文说明页面内容与交互的设计要点，不要只复述任务，不要使用英文思路。
 最终回答(content)只返回一份完整HTML文档，以<!doctype html>开头并以</html>结束，不要Markdown或解释。思路与最终HTML分开输出，不要把思路放进网页。
 HTML、CSS、JavaScript全部内联，使用系统字体、CSS或内联SVG绘图。不能使用外链、CDN、网络请求、模块导入、iframe、eval、new Function、弹窗、跳转、Cookie或localStorage。按钮与测验使用DOM更新和内存状态，避免alert和表单提交。页面必须有真实可见内容和可用交互，适配手机与桌面，防止无界循环。
+请将完整单文件HTML控制在1MiB以内，使用精简CSS、JavaScript和SVG，避免大段重复内容或巨大内联素材。
 仅把学生要求呈现的内容放入网页，不显示问卷说明、示例和版本标记。若有上一版HTML，按本次要求修改并返回完整新文档，保留未要求改变的功能。`
 
-var htmlStructure = regexp.MustCompile(`(?is)^<!doctype\s+html\s*>.*<html\b.*<head\b.*</head\s*>.*<body\b.*</body\s*>.*</html\s*>\s*$`)
+var htmlStructure = regexp.MustCompile(`(?is)^<!doctype\s+html\s*>.*<html\b`)
 var cssURLs = regexp.MustCompile(`(?is)url\s*\(\s*([^)]*)\)`)
 var networkJS = regexp.MustCompile(`(?i)\b(fetch|XMLHttpRequest|WebSocket|EventSource|importScripts|import)\s*\(|\bnavigator\s*\.\s*sendBeacon\s*\(`)
 var unsafeDesignJS = regexp.MustCompile(`\b(eval|Function|Worker|SharedWorker|alert|confirm|prompt)\s*\(|\bwindow\s*\.\s*open\s*\(|\bdocument\s*\.\s*write\s*\(|\bwhile\s*\(\s*(true|1)\s*\)|\bfor\s*\(\s*;\s*;\s*\)`)
@@ -35,10 +37,8 @@ func inlineDesignURL(value string) bool {
 }
 
 func validateDesignHTML(source string) (string, error) {
-	if len(source) > designHTMLLimit {
-		return "", designArtifactError("生成网页超过512KiB，请简化页面要求后重试")
-	}
 	source = strings.TrimSpace(source)
+	source = strings.TrimPrefix(source, "\ufeff")
 	if strings.HasPrefix(source, "```") {
 		line := strings.IndexByte(source, '\n')
 		if line < 0 || !strings.HasSuffix(source, "```") {
@@ -46,21 +46,22 @@ func validateDesignHTML(source string) (string, error) {
 		}
 		source = strings.TrimSpace(strings.TrimSuffix(source[line+1:], "```"))
 	}
-	if !utf8.ValidString(source) || strings.ContainsRune(source, '\x00') || strings.ContainsRune(source, utf8.RuneError) || !htmlStructure.MatchString(source) {
-		return "", fmt.Errorf("网页文档不完整或超过512KiB")
+	if !utf8.ValidString(source) || strings.ContainsRune(source, '\x00') || strings.ContainsRune(source, utf8.RuneError) {
+		return "", fmt.Errorf("网页编码无效，包含损坏字符")
+	}
+	if strings.HasPrefix(strings.ToLower(source), "<html") {
+		source = "<!doctype html>\n" + source
+	}
+	if !htmlStructure.MatchString(source) || !designHTMLHasClosingRoot(source) {
+		return "", fmt.Errorf("网页文档不完整：需要完整html文档及结束标记")
 	}
 	doc, err := html.Parse(strings.NewReader(source))
 	if err != nil {
 		return "", fmt.Errorf("网页解析失败")
 	}
 	var head *html.Node
-	nodes, scriptBytes := 0, 0
-	var visit func(*html.Node, int) error
-	visit = func(n *html.Node, depth int) error {
-		nodes++
-		if depth > 128 || nodes > 10000 || len(n.Attr) > 128 {
-			return designArtifactError("网页结构过于复杂，请简化要求后重试")
-		}
+	var visit func(*html.Node) error
+	visit = func(n *html.Node) error {
 		if n.Type == html.ElementNode {
 			switch n.Data {
 			case "head":
@@ -101,23 +102,19 @@ func validateDesignHTML(source string) (string, error) {
 				}
 			}
 			if n.Parent.Data == "script" {
-				scriptBytes += len(n.Data)
-				if scriptBytes > 256<<10 {
-					return designArtifactError("网页脚本过大，请简化交互要求后重试")
-				}
 				if networkJS.MatchString(n.Data) || unsafeDesignJS.MatchString(n.Data) {
 					return fmt.Errorf("网页包含不支持的网络、弹窗或高风险脚本")
 				}
 			}
 		}
 		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			if err := visit(child, depth+1); err != nil {
+			if err := visit(child); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err = visit(doc, 0); err != nil {
+	if err = visit(doc); err != nil {
 		return "", err
 	}
 	if head == nil {
@@ -144,10 +141,28 @@ func validateDesignHTML(source string) (string, error) {
 	if err = html.Render(&out, doc); err != nil {
 		return "", err
 	}
-	if out.Len() > designHTMLLimit {
-		return "", fmt.Errorf("网页超过512KiB")
-	}
 	return out.String(), nil
+}
+
+// head/body tags may legally be omitted. Verify the actual final HTML token,
+// rather than mistaking '</html>' inside an unfinished script for a complete page.
+func designHTMLHasClosingRoot(source string) bool {
+	tokens := html.NewTokenizer(strings.NewReader(source))
+	closed := false
+	for {
+		kind := tokens.Next()
+		if kind == html.ErrorToken {
+			return tokens.Err() == io.EOF && closed
+		}
+		if kind == html.CommentToken || kind == html.TextToken && strings.TrimSpace(string(tokens.Text())) == "" {
+			continue
+		}
+		closed = false
+		if kind == html.EndTagToken {
+			name, _ := tokens.TagName()
+			closed = string(name) == "html"
+		}
+	}
 }
 
 func validateDesignCSS(css string) error {
@@ -170,7 +185,7 @@ func (s *DesignImageService) htmlPath(name string) (string, error) {
 }
 
 func (s *DesignImageService) generateHTML(ctx context.Context, j *DesignHTMLJob) (*DesignHTMLVersion, error) {
-	if err := checkDesignStorage(s.htmlDir, designHTMLLimit); err != nil {
+	if err := checkDesignStorage(s.htmlDir, designHTMLPromptTarget); err != nil {
 		return nil, err
 	}
 	if _, err := normalizeDesignText(j.Prompt, "生成要求", designPromptLimit, true); err != nil {
@@ -198,12 +213,9 @@ func (s *DesignImageService) generateHTML(ctx context.Context, j *DesignHTMLJob)
 		if err != nil {
 			return nil, err
 		}
-		data, err := readDesignArtifact(path, designHTMLLimit)
+		data, err := readDesignArtifact(path, 0)
 		if err != nil {
 			return nil, err
-		}
-		if len(data) > designHTMLLimit {
-			return nil, fmt.Errorf("原网页超过大小限制")
 		}
 		history = append(history, AIChatMessage{Role: "assistant", Content: string(data)})
 	}
@@ -258,8 +270,9 @@ func (s *DesignImageService) generateHTML(ctx context.Context, j *DesignHTMLJob)
 			}
 			publish("thinking", false)
 			return nil
-		}, 16384, designHTMLLimit)
+		}, 16384, -1)
 		cancel()
+		responseBytes := len(answer)
 		if e == nil {
 			publish("validating", true)
 			answer, e = validateDesignHTML(answer)
@@ -267,7 +280,7 @@ func (s *DesignImageService) generateHTML(ctx context.Context, j *DesignHTMLJob)
 		if e != nil {
 			lastError = e
 			publish(phase, true)
-			log.Printf("design HTML provider %s failed: %v", provider.ID, e)
+			log.Printf("design HTML provider %s failed: %v (job=%s bytes=%d)", provider.ID, e, j.ID, responseBytes)
 			continue
 		}
 		publish("saving", true)

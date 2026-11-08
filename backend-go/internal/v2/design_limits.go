@@ -105,11 +105,15 @@ func readDesignArtifact(path string, limit int) ([]byte, error) {
 	}
 	defer f.Close()
 	stat, err := f.Stat()
-	if err != nil || !stat.Mode().IsRegular() || stat.Size() <= 0 || stat.Size() > int64(limit) {
+	if err != nil || !stat.Mode().IsRegular() || stat.Size() <= 0 || (limit > 0 && stat.Size() > int64(limit)) {
 		return nil, designArtifactError("原作品内容超限或无效，请联系老师")
 	}
-	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
-	if err != nil || len(data) > limit {
+	var reader io.Reader = f
+	if limit > 0 {
+		reader = io.LimitReader(f, int64(limit)+1)
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil || (limit > 0 && len(data) > limit) {
 		return nil, designArtifactError("原作品内容超限或读取失败，请联系老师")
 	}
 	return data, nil

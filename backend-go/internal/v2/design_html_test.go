@@ -89,7 +89,7 @@ func TestDesignHTMLValidation(t *testing.T) {
 		t.Fatalf("valid offline document rejected or policy missing: %v %s", err, code)
 	}
 	for _, source := range []string{
-		"<html><body>fragment</body></html>",
+		"<div>fragment</div>",
 		strings.TrimSuffix(designHTMLFixture, "</html>"),
 		strings.Replace(designHTMLFixture, "</head>", `<script src="https://example.org/x.js"></script></head>`, 1),
 		strings.Replace(designHTMLFixture, "</head>", `<style>@import 'x.css';</style></head>`, 1),
@@ -98,11 +98,23 @@ func TestDesignHTMLValidation(t *testing.T) {
 		strings.Replace(designHTMLFixture, "let n=0;", "fetch('/api/v2/classes');", 1),
 		strings.Replace(designHTMLFixture, "</head>", `<meta http-equiv="refresh" content="0;url=https://example.org"></head>`, 1),
 		strings.Replace(designHTMLFixture, "</head>", `<style>body{background:url(https://example.org/x.png)}</style></head>`, 1),
-		strings.Repeat("x", designHTMLLimit) + designHTMLFixture,
+		strings.Repeat("x", designHTMLPromptTarget) + designHTMLFixture,
 	} {
 		if _, err := validateDesignHTML(source); err == nil {
 			t.Fatal("unsafe or incomplete HTML accepted")
 		}
+	}
+	for _, source := range []string{
+		"<html><body>complete without doctype</body></html>",
+		"<!doctype html><html><title>省略可选标签</title><h1>完整网页</h1></html>",
+		"\ufeff" + designHTMLFixture + "<!-- trailing comment -->",
+	} {
+		if code, err := validateDesignHTML(source); err != nil || !strings.Contains(code, "Content-Security-Policy") {
+			t.Fatal("valid complete HTML rejected", err)
+		}
+	}
+	if _, err := validateDesignHTML("<!doctype html><html><head><script>const text='</html>';"); err == nil {
+		t.Fatal("unfinished script mistaken for closing HTML")
 	}
 }
 
