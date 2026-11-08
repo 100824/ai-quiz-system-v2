@@ -86,7 +86,7 @@ func (s *DesignImageService) Start(parent context.Context) error {
 	log.Printf("design image worker started: pid=%d", os.Getpid())
 	ctx, cancel := context.WithCancel(parent)
 	s.cancel = cancel
-	for n := 0; n < 2; n++ {
+	for n := 0; n < 10; n++ {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()

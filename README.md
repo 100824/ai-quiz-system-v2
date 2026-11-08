@@ -289,7 +289,7 @@ GLM 使用智谱通用 API 端点 `https://open.bigmodel.cn/api/paas/v4/chat/com
 - 固定模型 `doubao-seedream-5-0-flash-260915`，默认 `1K` JPEG。Go 后端读取 `ARK_API_KEY`，兼容 `ARK_KEY`（前者优先）；这与 DeepSeek / GLM 的文本主模型设置独立。
 - 部署时向 Go 后端进程注入 Key，构建后执行 `pm2 restart ai-quiz-system --update-env`。不要把实际密钥写入仓库。后端启动时自动创建新表和默认进度，不删除已有两版方案。
 - 图片存于数据目录下的 `design-images/`，通常为 `backend-go/data/design-images/`（沿用现有数据目录解析方式）；数据库保存文件位置和元信息。**备份、迁移时必须同时保留数据库和图片目录**。生成文件不得提交 Git。
-- 后台两路执行生成任务。排队任务持久化并可在重启后继续；执行中但结果不确定的任务标记中断，不自动重复调用付费接口。首次生成、修改和失败重试均使用独立请求标识防止重复点击扣费。
+- 后台最多并发执行 10 个生成任务。排队任务持久化并可在重启后继续；执行中但结果不确定的任务标记中断，不自动重复调用付费接口。首次生成、修改和失败重试均使用独立请求标识防止重复点击扣费。
 - 同一数据库仅允许一个图片任务进程，使用操作系统文件锁防止重复启动误中断任务；进程退出后锁自动释放。后端先监听端口再初始化任务，端口占用时直接退出。失败日志保留安全的错误原因，便于定位。
 - 默认测试不访问真实模型。真实联调显式设置 `DESIGN_IMAGE_LIVE_TEST=1` 和 `ARK_API_KEY`，运行 `go test ./internal/v2 -run '^TestDesignImageLive$' -v -timeout 10m`，最多一次首图、一次修改；可用 `DESIGN_IMAGE_LIVE_OUTPUT_DIR` 指定测试图片目录。
 
