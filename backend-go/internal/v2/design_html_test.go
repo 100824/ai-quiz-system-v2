@@ -98,7 +98,7 @@ func TestDesignHTMLValidation(t *testing.T) {
 		strings.Replace(designHTMLFixture, "let n=0;", "fetch('/api/v2/classes');", 1),
 		strings.Replace(designHTMLFixture, "</head>", `<meta http-equiv="refresh" content="0;url=https://example.org"></head>`, 1),
 		strings.Replace(designHTMLFixture, "</head>", `<style>body{background:url(https://example.org/x.png)}</style></head>`, 1),
-		strings.Repeat("x", designHTMLPromptTarget) + designHTMLFixture,
+		strings.Repeat("x", designHTMLPromptTarget),
 	} {
 		if _, err := validateDesignHTML(source); err == nil {
 			t.Fatal("unsafe or incomplete HTML accepted")
@@ -115,6 +115,104 @@ func TestDesignHTMLValidation(t *testing.T) {
 	}
 	if _, err := validateDesignHTML("<!doctype html><html><head><script>const text='</html>';"); err == nil {
 		t.Fatal("unfinished script mistaken for closing HTML")
+	}
+}
+
+func TestDesignHTMLAcceptsCompleteDocumentWithModelNotes(t *testing.T) {
+	for _, source := range []string{
+		"我会保留喝水提醒，并调整小乌龟的样式。\n" + designHTMLFixture,
+		designHTMLFixture + "\n已完成，可以直接打开。",
+		"生成思路：使用简单按钮。\n```html\n" + designHTMLFixture + "\n```\n说明结束。",
+		"<!-- 模型说明 -->\n" + designHTMLFixture,
+		"完整文档需要使用<html>和</html>，代码如下：\n" + designHTMLFixture,
+		designHTMLFixture + "\n后续可编辑<html>和</html>中的内容。",
+		"下面是网页：\n<html><title>学习伙伴</title><h1>提醒喝水</h1></html>\n现在可以使用。",
+	} {
+		code, err := validateDesignHTML(source)
+		if err != nil || !strings.HasPrefix(code, "<!DOCTYPE html>") || !strings.Contains(code, "Content-Security-Policy") || strings.Contains(code, "说明结束") || strings.Contains(code, "已完成，可以") {
+			t.Fatalf("complete model document was rejected or notes leaked: %v", err)
+		}
+	}
+	for _, source := range []string{
+		"这里只是文字说明，没有网页。",
+		"<!doctype><html></html>",
+		"请输出完整网页。\n<!doctype html><html><body><script>const x='</html>';",
+		"<!doctype html><html><body><textarea>literal </html>",
+	} {
+		if _, err := validateDesignHTML(source); err == nil {
+			t.Fatal("missing/truncated model document accepted")
+		}
+	}
+	if _, err := validateDesignHTML("下面是网页：\n" + strings.Replace(designHTMLFixture, "</body>", `<img src="https://example.org/image.png"></body>`, 1)); err == nil {
+		t.Fatal("notes bypassed offline policy")
+	}
+}
+
+func TestDesignHTMLModelNotesDoNotTriggerFallback(t *testing.T) {
+	_, repo, p := setupDesignImages(t)
+	p.OutputType = "html"
+	if _, err := repo.SaveDesignPlan(*p); err != nil {
+		t.Fatal(err)
+	}
+	completeDesignPlans(t, repo, p.ID)
+	t.Setenv("DEEPSEEK_KEY", "fixture-ds")
+	t.Setenv("GLM_KEY", "fixture-glm")
+	var primary, backup atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backup" {
+			backup.Add(1)
+		} else {
+			primary.Add(1)
+		}
+		var body struct {
+			Messages []AIChatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if strings.Contains(body.Messages[len(body.Messages)-1].Content, "no-document") {
+			writeDesignHTMLStream(w, "请填写具体的设计要求。")
+		} else {
+			writeDesignHTMLStream(w, "设计说明：保留喝水功能。\n```html\n"+designHTMLFixture+"\n```\n现在可以打开使用。")
+		}
+	}))
+	defer upstream.Close()
+	svc, err := newDesignImageService(repo, t.TempDir(), "", upstream.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(svc.htmlDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(repo)
+	h.deepSeekURL = upstream.URL
+	h.glmURL = upstream.URL + "/backup"
+	h.httpClient = upstream.Client()
+	svc.htmlHandler = h
+	if _, err = repo.EnqueueDesignHTML(p.ID, 1, 1, "model-notes", ""); err != nil {
+		t.Fatal(err)
+	}
+	j, err := repo.ClaimDesignHTMLJob()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.runHTML(context.Background(), j)
+	state, err := repo.DesignHTMLState(p.ID, 1, 0, 0)
+	if err != nil || state.VersionCount != 1 || state.LastJob.Status != "succeeded" || primary.Load() != 1 || backup.Load() != 0 {
+		t.Fatalf("complete response with notes incorrectly retried: %+v %v", state, err)
+	}
+	data, err := os.ReadFile(filepath.Join(svc.htmlDir, state.LatestVersion.FileName))
+	if err != nil || strings.Contains(string(data), "设计说明") || strings.Contains(string(data), "现在可以打开") {
+		t.Fatal("notes were saved as page content", err)
+	}
+	if _, err = repo.EnqueueDesignHTML(p.ID, 1, 1, "no-document", "no-document"); err != nil {
+		t.Fatal(err)
+	}
+	j, _ = repo.ClaimDesignHTMLJob()
+	svc.runHTML(context.Background(), j)
+	state, _ = repo.DesignHTMLState(p.ID, 1, 0, 0)
+	if state.VersionCount != 1 || state.LastJob.Status != "failed" || !strings.Contains(state.LastJob.Error, "模型未返回HTML网页") {
+		t.Fatalf("no-document response not explained or previous work changed: %+v", state)
 	}
 }
 

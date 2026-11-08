@@ -743,7 +743,12 @@ func (h *Handler) streamProviderOutput(ctx context.Context, provider aiProvider,
 		for _, choice := range chunk.Choices {
 			if choice.FinishReason != "" {
 				if choice.FinishReason != "stop" {
-					return "", fmt.Errorf("%s 回答未正常完成", provider.ID)
+					reason := "other"
+					switch choice.FinishReason {
+					case "length", "content_filter", "tool_calls", "function_call", "max_tokens":
+						reason = choice.FinishReason
+					}
+					return "", fmt.Errorf("%s 回答未正常完成（finish_reason=%s）", provider.ID, reason)
 				}
 				finished = true
 			}

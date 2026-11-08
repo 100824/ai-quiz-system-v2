@@ -79,6 +79,27 @@ func TestStreamDeepSeekDoesNotTruncateLongOutput(t *testing.T) {
 	}
 }
 
+func TestStreamFailureReportsSafeFinishReason(t *testing.T) {
+	for _, reason := range []string{"length", "content_filter", "tool_calls", "unsafe\nraw details"} {
+		t.Run(strings.Split(reason, "\n")[0], func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": reason, "delta": map[string]string{"content": "partial"}}}})
+				fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", b)
+			}))
+			defer upstream.Close()
+			h := NewHandler(nil)
+			_, err := h.streamProviderOutput(context.Background(), aiProvider{ID: "deepseek", Model: "fixture", url: upstream.URL, key: "fixture"}, "fixture", nil, nil, nil, 16384, -1)
+			want := reason
+			if strings.Contains(reason, "\n") {
+				want = "other"
+			}
+			if err == nil || !strings.Contains(err.Error(), "finish_reason="+want) || strings.Contains(err.Error(), "raw details") {
+				t.Fatalf("unsafe or missing finish reason: %v", err)
+			}
+		})
+	}
+}
+
 func TestSanitizeAIChatMessagesKeepsTenRounds(t *testing.T) {
 	messages := make([]AIChatMessage, 0, 22)
 	for i := 1; i <= 11; i++ {

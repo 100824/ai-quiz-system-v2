@@ -21,12 +21,12 @@ const designHTMLPromptTarget = 1 << 20 // Prompt guidance only; never a response
 const designHTMLReasoningLimit = 12000
 const designHTMLPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'"
 const designHTMLSystem = `你为小学学生生成可直接使用的离线交互网页。若提供可展示的生成思路(reasoning_content)，请用面向小学生的简短中文说明页面内容与交互的设计要点，不要只复述任务，不要使用英文思路。
-最终回答(content)只返回一份完整HTML文档，以<!doctype html>开头并以</html>结束，不要Markdown或解释。思路与最终HTML分开输出，不要把思路放进网页。
+最终回答(content)只返回一份完整HTML文档，以<!doctype html>开头并以</html>结束，不要Markdown、开场白、设计说明或结语。公开思路由接口独立的reasoning_content字段提供，不要在content中再次输出思路，不要把思路放进网页。
 HTML、CSS、JavaScript全部内联，使用系统字体、CSS或内联SVG绘图。不能使用外链、CDN、网络请求、模块导入、iframe、eval、new Function、弹窗、跳转、Cookie或localStorage。按钮与测验使用DOM更新和内存状态，避免alert和表单提交。页面必须有真实可见内容和可用交互，适配手机与桌面，防止无界循环。
 请将完整单文件HTML控制在1MiB以内，使用精简CSS、JavaScript和SVG，避免大段重复内容或巨大内联素材。
-仅把学生要求呈现的内容放入网页，不显示问卷说明、示例和版本标记。若有上一版HTML，按本次要求修改并返回完整新文档，保留未要求改变的功能。`
+仅把学生要求呈现的内容放入网页，不显示问卷说明、示例和版本标记。若有上一版HTML，按本次要求修改并返回完整新文档，保留未要求改变的功能。
+遇到与设计无关或含义不清的输入，不猜测学生想要删除哪些功能，不添加说教或说明，保留原方案或上一版功能并返回完整网页。`
 
-var htmlStructure = regexp.MustCompile(`(?is)^<!doctype\s+html\s*>.*<html\b`)
 var cssURLs = regexp.MustCompile(`(?is)url\s*\(\s*([^)]*)\)`)
 var networkJS = regexp.MustCompile(`(?i)\b(fetch|XMLHttpRequest|WebSocket|EventSource|importScripts|import)\s*\(|\bnavigator\s*\.\s*sendBeacon\s*\(`)
 var unsafeDesignJS = regexp.MustCompile(`\b(eval|Function|Worker|SharedWorker|alert|confirm|prompt)\s*\(|\bwindow\s*\.\s*open\s*\(|\bdocument\s*\.\s*write\s*\(|\bwhile\s*\(\s*(true|1)\s*\)|\bfor\s*\(\s*;\s*;\s*\)`)
@@ -39,21 +39,16 @@ func inlineDesignURL(value string) bool {
 func validateDesignHTML(source string) (string, error) {
 	source = strings.TrimSpace(source)
 	source = strings.TrimPrefix(source, "\ufeff")
-	if strings.HasPrefix(source, "```") {
-		line := strings.IndexByte(source, '\n')
-		if line < 0 || !strings.HasSuffix(source, "```") {
-			return "", fmt.Errorf("网页输出不完整")
-		}
-		source = strings.TrimSpace(strings.TrimSuffix(source[line+1:], "```"))
+	var err error
+	source, err = extractDesignHTMLDocument(source)
+	if err != nil {
+		return "", err
 	}
 	if !utf8.ValidString(source) || strings.ContainsRune(source, '\x00') || strings.ContainsRune(source, utf8.RuneError) {
 		return "", fmt.Errorf("网页编码无效，包含损坏字符")
 	}
 	if strings.HasPrefix(strings.ToLower(source), "<html") {
 		source = "<!doctype html>\n" + source
-	}
-	if !htmlStructure.MatchString(source) || !designHTMLHasClosingRoot(source) {
-		return "", fmt.Errorf("网页文档不完整：需要完整html文档及结束标记")
 	}
 	doc, err := html.Parse(strings.NewReader(source))
 	if err != nil {
@@ -144,23 +139,57 @@ func validateDesignHTML(source string) (string, error) {
 	return out.String(), nil
 }
 
-// head/body tags may legally be omitted. Verify the actual final HTML token,
-// rather than mistaking '</html>' inside an unfinished script for a complete page.
-func designHTMLHasClosingRoot(source string) bool {
+// Extract the document from optional model notes/fences. Only real HTML tokens
+// define its boundaries: text inside script/textarea/comment is never a closing
+// root. Inline references to <html> in explanatory prose are not documents.
+func extractDesignHTMLDocument(source string) (string, error) {
 	tokens := html.NewTokenizer(strings.NewReader(source))
-	closed := false
+	offset, doctype, root, bestStart, bestEnd := 0, -1, -1, -1, -1
 	for {
 		kind := tokens.Next()
 		if kind == html.ErrorToken {
-			return tokens.Err() == io.EOF && closed
+			if tokens.Err() != io.EOF {
+				return "", fmt.Errorf("网页解析失败")
+			}
+			if root >= 0 {
+				return "", designArtifactError("模型返回的网页没有完整结束，请重试。")
+			}
+			if bestStart >= 0 {
+				return strings.TrimSpace(source[bestStart:bestEnd]), nil
+			}
+			return "", designArtifactError("模型未返回HTML网页，请填写具体的设计或修改要求后重试。")
 		}
-		if kind == html.CommentToken || kind == html.TextToken && strings.TrimSpace(string(tokens.Text())) == "" {
+		start := offset
+		offset += len(tokens.Raw())
+		if kind == html.DoctypeToken && root < 0 {
+			fields := strings.Fields(tokens.Token().Data)
+			if len(fields) > 0 && strings.EqualFold(fields[0], "html") {
+				doctype = start
+			}
 			continue
 		}
-		closed = false
-		if kind == html.EndTagToken {
+		if kind == html.StartTagToken {
 			name, _ := tokens.TagName()
-			closed = string(name) == "html"
+			if string(name) == "html" && root < 0 {
+				lineStart := strings.LastIndexByte(source[:start], '\n') + 1
+				if doctype >= 0 {
+					root = doctype
+				} else if strings.TrimSpace(source[lineStart:start]) == "" {
+					root = start
+				}
+				doctype = -1
+			} else if root < 0 {
+				doctype = -1
+			}
+		} else if kind == html.EndTagToken {
+			name, _ := tokens.TagName()
+			if string(name) == "html" && root >= 0 {
+				bestStart, bestEnd = root, offset
+				root = -1
+				doctype = -1
+			}
+		} else if kind == html.TextToken && root < 0 && strings.TrimSpace(string(tokens.Text())) != "" {
+			doctype = -1
 		}
 	}
 }
