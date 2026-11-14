@@ -3,11 +3,13 @@ import { escapeHtml as esc, versionStatus, localTime } from './shared.js?v=20261
 import { imageURL, jobLabel } from './images.js?v=2026110811';
 import { showStudentHTML } from './html-teacher.js?v=2026110805';
 import { designLimits, designTextError, characterCount, attachDesignCounters } from './limits.js?v=2026110811';
+import { fetchExportBlob, exportBytes } from './export-download.js?v=2026111401';
 
 const $ = (id) => document.getElementById(id);
 let plans = [], classes = [], current = null, records = [], saving = false, recordsRequest = 0, loading = false, dirty = false;
 let progressRequest = 0, progressClassId = '', currentStage = 1;
 let htmlPreviews=[];
+let exportTask=null,exportResult=null;
 const clearHTMLPreviews=()=>{htmlPreviews.forEach(stop=>stop());htmlPreviews=[];};
 const emptyPlan = () => ({ id: 0, title: '', questions: [''], classIds: [], locked: false });
 function feedback(text, error = false) {
@@ -78,7 +80,7 @@ function render() {
       <h2>学生方案记录</h2><p class="meta">${current.id ? `当前方案：${esc(current.title)}` : '请先保存新方案，或在“我的方案”中选择已有方案。'}</p>
       <div class="form-row"><label for="dpClassFilter">班级</label><select id="dpClassFilter"><option value="">全部班级（含历史提交）</option>${classes.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
       <label for="dpStatusFilter">提交状态</label><select id="dpStatusFilter"><option value="">全部状态</option><option value="0">未提交</option><option value="1">仅第一版</option><option value="2">两版完成</option><option value="images">已生成未提交</option><option value="final">最终作品已提交</option></select>
-      <div class="inline-row"><button id="dpRefresh" type="button" class="secondary">刷新记录</button><button id="dpExport" type="button" ${current.id ? '' : 'disabled'}>导出文字 Excel</button><button id="dpImageExport" type="button" ${current.id ? '' : 'disabled'}>导出全部${current.outputType==='html'?'网页':'图片'} ZIP</button></div></div>
+      <div class="inline-row"><button id="dpRefresh" type="button" class="secondary">刷新记录</button><button id="dpExport" type="button" ${current.id ? '' : 'disabled'}>导出文字 Excel</button><button id="dpImageExport" type="button" ${current.id ? '' : 'disabled'}>导出全部${current.outputType==='html'?'网页':'图片'} ZIP</button><button id="dpCancelExport" type="button" class="secondary hidden">取消导出</button></div><p id="dpExportMessage" role="status" aria-live="polite"></p></div>
       <p id="dpRecordMessage" role="status"></p><div id="dpRecords"></div>
     </div>
   </div>`;
@@ -103,6 +105,8 @@ function render() {
   $('dpRefresh').onclick = loadRecords;
   $('dpExport').onclick = () => download(false);
   $('dpImageExport').onclick = () => download(true);
+  $('dpCancelExport').onclick = () => exportTask?.controller.abort();
+  syncExportUI();
   $('dpProgressClass').onchange = loadProgress;
   $('dpProgressRefresh').onclick = loadProgress;
   $('dpAdvance').onclick = advanceProgress;
@@ -259,16 +263,34 @@ async function showStudentImages(button) {
   if (button.isConnected) { button.disabled = false; button.textContent = '刷新图片与对话'; }
 }
 
+function syncExportUI(){
+  const busy=!!exportTask;
+  for(const id of ['dpExport','dpImageExport']){const button=$(id);if(button){button.disabled=!current?.id||busy;button.setAttribute('aria-busy',String(busy));button.textContent=id==='dpExport'?'导出文字 Excel':`导出全部${current?.outputType==='html'?'网页':'图片'} ZIP`;}}
+  if(busy && $(exportTask.buttonId))$(exportTask.buttonId).textContent='正在导出…';
+  $('dpCancelExport')?.classList.toggle('hidden',!busy);
+  const message=$('dpExportMessage');if(!message)return;
+  const result=busy?{text:exportTask.status,error:false}:exportResult?.planId===current?.id?exportResult:null;
+  message.textContent=result?.text||'';message.className=result?.error?'error-message':'meta';
+}
+
 async function download(images = false) {
-  const button = $(images ? 'dpImageExport' : 'dpExport'); button.disabled = true;
+  if(exportTask||!current?.id)return;
+  const plan={id:current.id,title:current.title,outputType:current.outputType};
+  const cid=$('dpClassFilter').value;
+  const task={controller:new AbortController(),buttonId:images?'dpImageExport':'dpExport',status:`正在准备「${plan.title}」的导出文件，请稍候…`};
+  exportTask=task;exportResult=null;syncExportUI();
+  let lastProgress=0;
   try {
-    const cid = $('dpClassFilter').value;
-    const response = await fetch(`${apiBase()}/design-plans/${current.id}/${images ? (current.outputType==='html'?'html-export':'images-export') : 'export'}${cid ? `?classId=${cid}` : ''}`);
-    if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '导出请求失败'); }
-    const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a');
-    link.href = url; link.download = `方案设计-${current.title}.${images ? 'zip' : 'xlsx'}`; document.body.append(link); link.click(); link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    $('dpRecordMessage').textContent = '导出成功，文件包含当前方案及所选班级的全部提交状态。';
-  } catch (error) { $('dpRecordMessage').textContent = `导出失败：${error.message}`; }
-  finally { if (button.isConnected) button.disabled = false; }
+    const path=images?(plan.outputType==='html'?'html-export':'images-export'):'export';
+    const blob=await fetchExportBlob(`${apiBase()}/design-plans/${plan.id}/${path}${cid?`?classId=${cid}`:''}`,{signal:task.controller.signal,onProgress:({received,total})=>{
+      if(!received||exportTask!==task||task.controller.signal.aborted||Date.now()-lastProgress<250)return;lastProgress=Date.now();
+      task.status=`正在接收「${plan.title}」：${exportBytes(received)}${total?` / ${exportBytes(total)}`:''}，完成后将启动浏览器下载。`;syncExportUI();
+    }});
+    if(task.controller.signal.aborted)return;
+    const url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download=`方案设计-${plan.title.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_')}.${images?'zip':'xlsx'}`;link.hidden=true;document.body.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+    exportResult={planId:plan.id,text:'导出文件已生成，已发起浏览器下载。若未出现文件，请查看浏览器下载记录或拦截提示。',error:false};
+  }catch(error){exportResult={planId:plan.id,text:task.controller.signal.aborted?'已取消导出，可以重新点击导出。':`导出失败：${error.message}，可以重新点击导出。`,error:!task.controller.signal.aborted};}
+  finally{if(exportTask===task)exportTask=null;syncExportUI();}
 }
